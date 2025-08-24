@@ -4,51 +4,67 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 
-# --- Configuración inicial ---
 st.set_page_config(page_title="EDA Automático", layout="wide")
 
-st.markdown("""
+st.markdown(
+    """
     <style>
-    .main {background-color: #f9f9f9;}
-    h1, h2, h3 {color: #2c3e50;}
-    .stDataFrame {background-color: white; border-radius: 10px;}
+    body {
+        background-color: #f8f9fa;
+        color: #212529;
+    }
+    .stApp {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+    h1, h2, h3 {
+        color: #2c3e50;
+    }
+    .stDataFrame {
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        overflow: hidden;
+    }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-st.title("📊 Explorador Automático de Datos (EDA)")
+st.title("📊 Exploratory Data Analysis Automático")
 
-# --- Subida de archivo ---
-uploaded_file = st.file_uploader("📂 Sube tu archivo CSV", type=["csv"])
+# --- Cargar archivo ---
+uploaded_file = st.file_uploader("Sube tu archivo CSV", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
 
-    st.subheader("👀 Vista previa de los datos")
+    st.write("### Vista previa de los datos")
     st.dataframe(df.head())
 
     # --- Detección y conversión de tipos ---
     conversion_log = []
 
-    # Intentar convertir columnas que parezcan fechas
     for col in df.columns:
         if df[col].dtype == "object":
+            # 1. Intentar convertir a fecha
             try:
                 df[col] = pd.to_datetime(df[col], errors="raise")
                 conversion_log.append(f"📅 La columna **'{col}'** fue detectada y convertida a **fecha**.")
+                continue
             except (ValueError, TypeError):
-                pass  # no era fecha
-
-    # Forzar conversión de numéricos (ej: valores con comas o espacios)
-    for col in df.columns:
-        if df[col].dtype == "object":
-            try:
-                df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", "").str.strip(), errors="coerce")
-                if df[col].notnull().sum() > 0:
-                    conversion_log.append(f"🔢 La columna **'{col}'** fue convertida a **numérica**.")
-            except:
                 pass
 
-    # Separar columnas por tipo
+            # 2. Intentar convertir a numérico SOLO si mayoría son números
+            numeric_attempt = pd.to_numeric(df[col].astype(str).str.replace(",", "").str.strip(), errors="coerce")
+            ratio_numeric = numeric_attempt.notnull().mean()
+            if ratio_numeric > 0.7:  # umbral configurable
+                df[col] = numeric_attempt
+                conversion_log.append(f"🔢 La columna **'{col}'** fue convertida a **numérica**.")
+            else:
+                df[col] = df[col].astype("category")
+                conversion_log.append(f"🏷️ La columna **'{col}'** fue clasificada como **categórica**.")
+
+    # --- Clasificación final de variables ---
     numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
     cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
     date_cols = df.select_dtypes(include=["datetime64[ns]"]).columns.tolist()
@@ -58,42 +74,101 @@ if uploaded_file:
     st.write(f"**Categóricas:** {cat_cols}")
     st.write(f"**Fechas:** {date_cols}")
 
-    # Mostrar log de conversiones en expander
     if conversion_log:
-        with st.expander("🔎 Conversión automática realizada en los datos"):
+        with st.expander("🔎 Ver detalles de conversiones automáticas"):
             for log in conversion_log:
                 st.markdown(f"- {log}")
 
-    # --- Valores nulos y atípicos ---
-    st.subheader("📉 Resumen de calidad de datos")
-    nulls = df.isnull().sum()
-    outliers = {}
+    # --- Valores nulos ---
+    st.write("### ❌ Datos Nulos por Columna")
+    st.dataframe(df.isnull().sum().reset_index().rename(columns={"index": "Columna", 0: "Nulos"}))
+
+    # --- Outliers ---
+    st.write("### 📉 Resumen de Valores Atípicos")
+    outlier_summary = {}
     for col in numeric_cols:
-        q1 = df[col].quantile(0.25)
-        q3 = df[col].quantile(0.75)
-        iqr = q3 - q1
-        outliers[col] = ((df[col] < (q1 - 1.5 * iqr)) | (df[col] > (q3 + 1.5 * iqr))).sum()
+        Q1 = df[col].quantile(0.25)
+        Q3 = df[col].quantile(0.75)
+        IQR = Q3 - Q1
+        outliers = ((df[col] < (Q1 - 1.5 * IQR)) | (df[col] > (Q3 + 1.5 * IQR))).sum()
+        outlier_summary[col] = outliers
+    st.dataframe(pd.DataFrame.from_dict(outlier_summary, orient="index", columns=["Outliers"]))
 
-    summary_quality = pd.DataFrame({
-        "Nulos": nulls,
-        "Atípicos (IQR)": pd.Series(outliers)
-    }).fillna("-")
+    # --- Estadísticas descriptivas ---
+    st.write("### 📊 Estadísticas de variables numéricas")
+    st.dataframe(df[numeric_cols].describe().T)
 
-    st.dataframe(summary_quality)
+    # --- Boxplots (con opción de normalizar) ---
+    st.write("### 📦 Boxplots de variables numéricas")
+    normalize = st.checkbox("Normalizar datos con MinMaxScaler antes de graficar")
+    data_for_boxplot = df[numeric_cols].copy()
 
-    # --- Medidas de tendencia central ---
-    st.subheader("📌 Estadísticas descriptivas (numéricas)")
-    st.write(df[numeric_cols].describe())
-
-    # --- Boxplots normalizados opcional ---
-    st.subheader("📦 Distribución de variables numéricas")
-    normalize = st.checkbox("🔄 Normalizar con MinMaxScaler antes del boxplot")
-
-    data_plot = df[numeric_cols].copy()
-    if normalize and not data_plot.empty:
+    if normalize:
         scaler = MinMaxScaler()
-        data_plot[numeric_cols] = scaler.fit_transform(data_plot[numeric_cols])
-        st.info("Los datos fueron normalizados con MinMaxScaler")
+        data_for_boxplot[numeric_cols] = scaler.fit_transform(data_for_boxplot[numeric_cols])
+        st.info("Se aplicó MinMaxScaler a los datos numéricos.")
 
-    if not data_plot.empty:
-        fig, ax = plt.subplot
+    fig, axes = plt.subplots(nrows=(len(numeric_cols) + 1) // 2, ncols=2, figsize=(12, 6))
+    axes = axes.flatten()
+    for i, col in enumerate(numeric_cols):
+        sns.boxplot(y=data_for_boxplot[col], ax=axes[i], color="skyblue")
+        axes[i].set_title(col)
+    for j in range(i + 1, len(axes)):
+        fig.delaxes(axes[j])
+    st.pyplot(fig)
+
+    # --- Histogramas para categóricas ---
+    if cat_cols:
+        st.write("### 📊 Histogramas de variables categóricas")
+        for col in cat_cols:
+            fig, ax = plt.subplots(figsize=(6, 4))
+            sns.countplot(x=df[col], ax=ax, palette="Set2")
+            ax.set_title(f"Distribución de {col}")
+            plt.xticks(rotation=45)
+            st.pyplot(fig)
+
+    # --- Heatmap de correlación ---
+    if numeric_cols:
+        st.write("### 🔥 Heatmap de correlación")
+        corr = df[numeric_cols].corr()
+        fig, ax = plt.subplots(figsize=(8, 6))
+        sns.heatmap(corr, annot=True, cmap="RdYlGn", center=0, ax=ax)
+        st.pyplot(fig)
+
+    # --- Correlación entre dos variables ---
+    if len(numeric_cols) >= 2:
+        st.write("### 🔗 Análisis de correlación entre dos variables")
+        col1 = st.selectbox("Selecciona la primera variable", numeric_cols)
+        col2 = st.selectbox("Selecciona la segunda variable", numeric_cols)
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        sns.scatterplot(x=df[col1], y=df[col2], ax=ax)
+        ax.set_title(f"Correlación entre {col1} y {col2}")
+        st.pyplot(fig)
+
+    # --- Gráficos de tendencia si hay fechas ---
+    if date_cols and numeric_cols:
+        st.write("### 📈 Gráficos de tendencia en el tiempo")
+        date_col = date_cols[0]  # usar la primera columna fecha encontrada
+        trend_var = st.selectbox("Selecciona variable numérica para graficar tendencia", numeric_cols)
+
+        fig, ax = plt.subplots(figsize=(10, 4))
+        sns.lineplot(x=df[date_col], y=df[trend_var], ax=ax)
+        ax.set_title(f"Tendencia de {trend_var} en el tiempo ({date_col})")
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
+
+    # --- Pivot Table con stock index ---
+    if "stock index" in df.columns and date_cols:
+        st.write("### 📊 Pivot Table: Promedio por fecha y Stock Index")
+        date_col = date_cols[0]
+
+        pivot_table = pd.pivot_table(
+            df,
+            values=numeric_cols,
+            index=date_col,
+            columns="stock index",
+            aggfunc="mean"
+        )
+
+        st.dataframe(pivot_table)
