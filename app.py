@@ -62,9 +62,18 @@ if uploaded_file:
     })
     st.dataframe(dtypes_df)
 
-    # Separar numéricos y categóricos
+    # Separar numéricos, categóricos y fechas
     numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
-    categorical_cols = df.select_dtypes(exclude=["int64", "float64"]).columns.tolist()
+    categorical_cols = df.select_dtypes(exclude=["int64", "float64", "datetime64[ns]"]).columns.tolist()
+
+    # Detectar columnas tipo fecha (o convertibles a fecha)
+    date_cols = []
+    for col in df.columns:
+        try:
+            df[col] = pd.to_datetime(df[col], errors="raise")
+            date_cols.append(col)
+        except:
+            continue
 
     # --- Resumen de Nulos y Outliers ---
     st.subheader("⚠️ Resumen de valores nulos y atípicos")
@@ -150,4 +159,21 @@ if uploaded_file:
             fig, ax = plt.subplots()
             sns.scatterplot(x=df[col1], y=df[col2], ax=ax, color="purple", alpha=0.7)
             ax.set_title(f"Dispersión entre {col1} y {col2}", fontsize=12)
+            st.pyplot(fig)
+
+    # --- Tendencias en el tiempo ---
+    if date_cols and numeric_cols:
+        st.subheader("📈 Análisis de tendencias temporales")
+
+        date_col = st.selectbox("Seleccione la columna de fecha", date_cols)
+        num_col = st.selectbox("Seleccione la variable numérica a graficar", numeric_cols)
+
+        if date_col and num_col:
+            df_sorted = df.sort_values(by=date_col)
+
+            fig, ax = plt.subplots(figsize=(12, 5))
+            sns.lineplot(x=df_sorted[date_col], y=df_sorted[num_col], ax=ax, marker="o", color="teal")
+            ax.set_title(f"Tendencia temporal de {num_col} sobre {date_col}", fontsize=14)
+            ax.set_xlabel("Tiempo")
+            ax.set_ylabel(num_col)
             st.pyplot(fig)
