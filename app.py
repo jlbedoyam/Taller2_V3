@@ -3,12 +3,48 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+# ---------------------------
+# CONFIGURACIÓN DE LA APP
+# ---------------------------
 st.set_page_config(page_title="EDA Automático", layout="wide")
+
+# Estilos CSS personalizados
+st.markdown(
+    """
+    <style>
+        body {
+            background-color: #F8F9FA;
+        }
+        .main {
+            background-color: #FFFFFF;
+            padding: 20px;
+            border-radius: 12px;
+        }
+        h1 {
+            color: #2C3E50;
+        }
+        h2, h3, h4 {
+            color: #34495E;
+            margin-top: 30px;
+        }
+        .dataframe {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .stPlotlyChart, .stPyplot {
+            margin-bottom: 40px;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 st.title("📊 Aplicación de EDA Automático")
 
-# --- Subida de archivo ---
-uploaded_file = st.file_uploader("Cargar archivo CSV", type=["csv"])
+# ---------------------------
+# SUBIDA DE ARCHIVO
+# ---------------------------
+uploaded_file = st.file_uploader("📂 Cargar archivo CSV", type=["csv"])
 
 if uploaded_file:
     # Cargar dataset
@@ -38,8 +74,8 @@ if uploaded_file:
         st.subheader("📦 Boxplots de variables numéricas")
         for col in numeric_cols:
             fig, ax = plt.subplots()
-            sns.boxplot(x=df[col], ax=ax)
-            ax.set_title(f"Boxplot de {col}")
+            sns.boxplot(x=df[col], ax=ax, color="skyblue")
+            ax.set_title(f"Boxplot de {col}", fontsize=12)
             st.pyplot(fig)
 
     # --- Variables categóricas ---
@@ -47,23 +83,32 @@ if uploaded_file:
         st.subheader("📊 Frecuencias de variables categóricas")
         for col in categorical_cols:
             fig, ax = plt.subplots()
-            df[col].value_counts().plot(kind="bar", ax=ax)
-            ax.set_title(f"Frecuencia de {col}")
+            df[col].value_counts().plot(kind="bar", ax=ax, color="coral")
+            ax.set_title(f"Frecuencia de {col}", fontsize=12)
             st.pyplot(fig)
 
     # --- Análisis de correlación ---
     if len(numeric_cols) >= 2:
+        st.subheader("🧩 Matriz de correlación (Heatmap)")
+
+        corr_matrix = df[numeric_cols].corr()
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.heatmap(corr_matrix, annot=True, cmap="Blues", fmt=".2f", ax=ax, cbar=True)
+        ax.set_title("Matriz de correlación de variables numéricas", fontsize=14)
+        st.pyplot(fig)
+
+        # Selección de dos variables
         st.subheader("🔗 Correlación entre dos variables numéricas")
         col1 = st.selectbox("Seleccione la primera variable", numeric_cols)
         col2 = st.selectbox("Seleccione la segunda variable", numeric_cols)
 
         if col1 and col2:
             corr_value = df[col1].corr(df[col2])
-            st.write(f"**Coeficiente de correlación de Pearson entre {col1} y {col2}:** {corr_value:.4f}")
+            st.write(f"**Coeficiente de correlación de Pearson entre {col1} y {col2}:** `{corr_value:.4f}`")
 
             # Gráfico de dispersión
             fig, ax = plt.subplots()
-            sns.scatterplot(x=df[col1], y=df[col2], ax=ax)
-            ax.set_title(f"Dispersión entre {col1} y {col2}")
+            sns.scatterplot(x=df[col1], y=df[col2], ax=ax, color="purple", alpha=0.7)
+            ax.set_title(f"Dispersión entre {col1} y {col2}", fontsize=12)
             st.pyplot(fig)
-
