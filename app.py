@@ -1,179 +1,296 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 
-# Configuración general de la app
+# ====== Configuración de página y estilo ======
 st.set_page_config(page_title="EDA Automático", layout="wide")
+st.markdown("""
+<style>
+    .main { background-color: #f7f8fa; }
+    h1, h2, h3 { color: #2c3e50; }
+    .stDataFrame { background: #fff; border-radius: 10px; }
+    .metric-card { background:#fff; padding:12px 16px; border-radius:12px; border:1px solid #eaecef; }
+</style>
+""", unsafe_allow_html=True)
+st.title("📊 Exploratory Data Analysis (EDA) – Interactivo")
 
-# Estilos CSS personalizados
-st.markdown(
+# ====== Utilidades ======
+def deduplicate_columns(df: pd.DataFrame):
+    """Renombra columnas duplicadas añadiendo sufijos _dup1, _dup2... y devuelve log."""
+    cols = pd.Series(df.columns)
+    log = []
+    if cols.duplicated().any():
+        counts = {}
+        new_cols = []
+        for c in cols:
+            if c in counts:
+                counts[c] += 1
+                new_name = f"{c}_dup{counts[c]}"
+                new_cols.append(new_name)
+                log.append(f"🧱 Columna duplicada '{c}' renombrada a '{new_name}'.")
+            else:
+                counts[c] = 0
+                new_cols.append(c)
+        df.columns = new_cols
+    return df, log
+
+def try_parse_dates(series: pd.Series):
+    """Intenta convertir a fecha si es object. Devuelve (serie_convertida, ok_bool)."""
+    if series.dtype != "object":
+        return series, False
+    try:
+        s = pd.to_datetime(series, errors="raise", infer_datetime_format=True)
+        return s, True
+    except Exception:
+        return series, False
+
+def smart_to_numeric(series: pd.Series):
     """
-    <style>
-    body {
-        background-color: #f8f9fa;
-    }
-    .main {
-        background-color: #ffffff;
-        padding: 20px;
-        border-radius: 10px;
-    }
-    h1, h2, h3 {
-        color: #2c3e50;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+    Convierte strings a numérico soportando formatos:
+    - '1,234.56' (EN)
+    - '1.234,56' (EU)
+    - con espacios o '%'
+    Devuelve (serie_convertida, ratio_numerico)
+    """
+    if series.dtype != "object" and not pd.api.types.is_categorical_dtype(series):
+        return pd.to_numeric(series, errors="coerce"), series.notna().mean()
 
-st.title("📊 Exploratory Data Analysis (EDA) Automático")
+    s = series.astype(str).str.strip()
+    s = s.str.replace(r"\s+", "", regex=True).str.replace("%", "", regex=False)
 
-# Cargar archivo CSV
-uploaded_file = st.file_uploader("Sube tu archivo CSV", type="csv")
+    # Estrategia EN: separar miles con coma
+    en = pd.to_numeric(s.str.replace(",", "", regex=False), errors="coerce")
+    en_ratio = en.notna().mean()
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+    # Estrategia EU: separar miles con punto, decimal con coma
+    eu = pd.to_numeric(s.str.replace(".", "", regex=False).str.replace(",", ".", regex=False), errors="coerce")
+    eu_ratio = eu.notna().mean()
 
-    # Detectar columnas por tipo
-    numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
-    categorical_cols = df.select_dtypes(include=["object"]).columns.tolist()
-    date_cols = df.select_dtypes(include=["datetime64[ns]"]).columns.tolist()
+    if eu_ratio > en_ratio:
+        return eu, eu_ratio
+    else:
+        return en, en_ratio
 
-    # Intentar parsear fechas si hay columnas tipo fecha
-    if not date_cols:
-        for col in df.columns:
-            try:
-                df[col] = pd.to_datetime(df[col], errors="raise")
-                date_cols.append(col)
-            except:
-                pass
+def classify_columns(df: pd.DataFrame, threshold=0.7):
+    """
+    1) Detecta fechas en columnas object.
+    2) Convierte a numérico si > threshold de valores son numéricos.
+    3) Resto -> categórica.
+    Devuelve df convertido, listas de columnas y log.
+    """
+    log = []
 
-    # --- Descripción inicial ---
-    st.write("### 📝 Descripción general de los datos")
-    st.write("**Dimensiones del dataset:**", df.shape)
-    st.write("**Tipos de datos:**")
-    st.write(df.dtypes)
-    st.dataframe(df.head())
+    # 1) Detectar fechas solo en object
+    for col in df.columns:
+        if df[col].dtype == "object":
+            conv, is_date = try_parse_dates(df[col])
+            if is_date:
+                df[col] = conv
+                log.append(f"📅 '{col}' convertida a fecha (datetime).")
 
-    # --- Datos nulos y atípicos ---
-    st.write("### ❓ Resumen de valores nulos y atípicos")
-    nulls = df.isnull().sum()
-    outliers = {}
-    for col in numeric_cols:
-        q1 = df[col].quantile(0.25)
-        q3 = df[col].quantile(0.75)
-        iqr = q3 - q1
-        outliers[col] = ((df[col] < (q1 - 1.5 * iqr)) | (df[col] > (q3 + 1.5 * iqr))).sum()
-    summary_nulls = pd.DataFrame({"Nulos": nulls, "Atípicos": pd.Series(outliers)})
-    st.dataframe(summary_nulls)
+    # 2) Intentar numérico en objetos/categorías que no quedaron como fecha
+    for col in df.columns:
+        if df[col].dtype == "object" or pd.api.types.is_categorical_dtype(df[col]):
+            conv, ratio = smart_to_numeric(df[col])
+            if ratio >= threshold:
+                df[col] = conv
+                log.append(f"🔢 '{col}' convertida a numérica (ratio {ratio:.0%}).")
+            else:
+                df[col] = df[col].astype("category")
+                log.append(f"🏷️ '{col}' clasificada como categórica (ratio numérico {ratio:.0%}).")
 
-    # --- Estadísticas de variables numéricas ---
-    st.write("### 📈 Estadísticas de variables numéricas")
-    st.write(df[numeric_cols].describe())
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    date_cols = df.select_dtypes(include=["datetime64[ns]", "datetime64[ns, UTC]"]).columns.tolist()
+    cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
 
-    # --- Boxplots ---
-    st.write("### 📦 Boxplots de variables numéricas")
-    normalize = st.checkbox("Normalizar variables con MinMaxScaler (0-1)", key="boxplot_norm")
-    box_data = df[numeric_cols].dropna()
-    if normalize:
+    return df, numeric_cols, cat_cols, date_cols, log
+
+def get_stock_index_col(df: pd.DataFrame):
+    """Devuelve nombre real de columna 'Stock Index' sin importar mayúsculas/minúsculas; si no existe, None."""
+    for c in df.columns:
+        if c.strip().lower() == "stock index":
+            return c
+    return None
+
+# ====== Carga de archivo ======
+uploaded = st.file_uploader("📂 Sube tu archivo CSV", type=["csv"])
+if not uploaded:
+    st.info("Carga un CSV para iniciar el análisis.")
+    st.stop()
+
+# Leemos y deduplicamos nombres de columnas
+df_raw = pd.read_csv(uploaded)
+df, dup_log = deduplicate_columns(df_raw.copy())
+
+# Clasificación/Conversión robusta
+df, numeric_cols, cat_cols, date_cols, conv_log = classify_columns(df, threshold=0.7)
+
+# ====== Vista previa y logs ======
+st.subheader("👀 Vista previa")
+st.dataframe(df.head())
+
+with st.expander("🔎 Registro de conversiones automáticas"):
+    for m in dup_log + conv_log:
+        st.markdown(f"- {m}")
+
+st.subheader("🗂️ Tipos detectados")
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.markdown("**Numéricas**")
+    st.write(numeric_cols if numeric_cols else "—")
+with c2:
+    st.markdown("**Categóricas**")
+    st.write(cat_cols if cat_cols else "—")
+with c3:
+    st.markdown("**Fecha**")
+    st.write(date_cols if date_cols else "—")
+
+# ====== Calidad de datos ======
+st.subheader("🧹 Calidad de datos")
+nulls = df.isnull().sum().rename("Nulos")
+# Outliers por IQR (solo numéricas)
+outliers = {}
+for col in numeric_cols:
+    q1, q3 = df[col].quantile([0.25, 0.75])
+    iqr = q3 - q1
+    lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    outliers[col] = int(((df[col] < lo) | (df[col] > hi)).sum())
+quality = pd.concat([nulls, pd.Series(outliers, name="Atípicos")], axis=1)
+st.dataframe(quality)
+
+# ====== Estadísticas descriptivas ======
+if numeric_cols:
+    st.subheader("📈 Estadísticas descriptivas (numéricas)")
+    st.dataframe(df[numeric_cols].describe().T)
+
+# ====== Boxplots (opción normalizar) ======
+if numeric_cols:
+    st.subheader("📦 Boxplots de variables numéricas")
+    norm_box = st.checkbox("Normalizar con MinMaxScaler (0-1) antes del boxplot", value=False, key="box_norm")
+    plot_df = df[numeric_cols].copy()
+    if norm_box:
         scaler = MinMaxScaler()
-        box_data = pd.DataFrame(scaler.fit_transform(box_data), columns=numeric_cols)
+        plot_df[numeric_cols] = scaler.fit_transform(plot_df[numeric_cols])
 
-    fig, axes = plt.subplots(
-        nrows=(len(numeric_cols) // 2) + 1, ncols=2, figsize=(12, len(numeric_cols) * 2.5)
-    )
-    axes = axes.flatten()
+    n = len(numeric_cols)
+    ncols = 3
+    nrows = int(np.ceil(n / ncols))
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(12, 3.2 * nrows))
+    axes = np.array(axes).reshape(-1)
     for i, col in enumerate(numeric_cols):
-        sns.boxplot(y=box_data[col], ax=axes[i])
-        axes[i].set_title(col)
+        sns.boxplot(y=plot_df[col], ax=axes[i])
+        axes[i].set_title(col, fontsize=10)
     for j in range(i + 1, len(axes)):
         axes[j].axis("off")
+    plt.tight_layout()
     st.pyplot(fig)
 
-    # --- Histogramas de categóricas ---
-    st.write("### 📊 Histogramas de variables categóricas")
-    for col in categorical_cols:
-        fig, ax = plt.subplots()
-        sns.countplot(x=df[col], ax=ax)
+# ====== Histogramas categóricos ======
+if cat_cols:
+    st.subheader("📊 Frecuencias de variables categóricas")
+    for col in cat_cols:
+        fig, ax = plt.subplots(figsize=(6, 3.5))
+        df[col].value_counts(dropna=False).plot(kind="bar", ax=ax)
         ax.set_title(f"Frecuencia de {col}")
-        plt.xticks(rotation=45)
+        plt.xticks(rotation=45, ha="right")
         st.pyplot(fig)
 
-    # --- Heatmap de correlación ---
-    if len(numeric_cols) > 1:
-        st.write("### 🌡️ Mapa de calor de correlaciones")
-        corr_matrix = df[numeric_cols].corr()
-        fig, ax = plt.subplots(figsize=(10, 6))
-        cmap = sns.diverging_palette(10, 240, as_cmap=True)  # Verde → Amarillo → Rojo
-        sns.heatmap(corr_matrix, annot=True, cmap=cmap, center=0, ax=ax)
-        st.pyplot(fig)
+# ====== Heatmap de correlación ======
+if len(numeric_cols) >= 2:
+    st.subheader("🔥 Matriz de correlación (verde = +, rojo = -)")
+    corr = df[numeric_cols].corr(numeric_only=True)
+    fig, ax = plt.subplots(figsize=(9, 6))
+    sns.heatmap(corr, annot=True, fmt=".2f", cmap="RdYlGn", center=0, ax=ax, cbar_kws={"label": "Correlación"})
+    ax.set_title("Correlaciones entre variables numéricas")
+    st.pyplot(fig)
 
-    # --- Análisis de correlación entre dos variables ---
-    st.write("### 🔗 Análisis de correlación entre dos variables numéricas")
+# ====== Correlación entre dos variables (con opción MinMax) ======
+if len(numeric_cols) >= 2:
+    st.subheader("🔗 Análisis de correlación entre dos variables")
 
-    if len(numeric_cols) >= 2:
-        var1 = st.selectbox("Selecciona la primera variable", numeric_cols)
-        var2 = st.selectbox("Selecciona la segunda variable", numeric_cols)
+    c1, c2 = st.columns(2)
+    with c1:
+        var1 = st.selectbox("Variable X", numeric_cols, key="corr_x")
+    with c2:
+        var2 = st.selectbox("Variable Y", numeric_cols, key="corr_y")
 
-        # Checkbox para normalización con MinMaxScaler
-        normalize_corr = st.checkbox("Normalizar variables con MinMaxScaler (0-1)", key="corr_norm")
+    norm_corr = st.checkbox("Normalizar X e Y con MinMaxScaler (0-1)", value=False, key="corr_norm")
 
-        data_corr = df[[var1, var2]].dropna()
+    data_corr = df[[var1, var2]].copy()
+    data_corr = data_corr.apply(pd.to_numeric, errors="coerce").dropna()
 
-        if normalize_corr:
-            scaler = MinMaxScaler()
-            data_corr[[var1, var2]] = scaler.fit_transform(data_corr[[var1, var2]])
+    if norm_corr and not data_corr.empty:
+        scaler = MinMaxScaler()
+        data_corr[[var1, var2]] = scaler.fit_transform(data_corr[[var1, var2]])
 
-        # Forzamos a Series para evitar error de ambigüedad
-        x = data_corr[var1].astype(float).squeeze()
-        y = data_corr[var2].astype(float).squeeze()
+    # Convertimos a Series 1D de forma segura (evita ambigüedad por nombres duplicados)
+    x = pd.Series(data_corr[var1].values, name=var1)
+    y = pd.Series(data_corr[var2].values, name=var2)
 
+    if len(x) >= 2 and len(y) >= 2:
         corr_value = x.corr(y)
-
-        st.write(f"Coeficiente de correlación entre **{var1}** y **{var2}**: `{corr_value:.2f}`")
-
-        fig, ax = plt.subplots(figsize=(5, 4))
+        st.markdown(f"**Coeficiente de Pearson ({var1} vs {var2}):** `{corr_value:.4f}`")
+        fig, ax = plt.subplots(figsize=(6, 4))
         sns.scatterplot(x=x, y=y, ax=ax)
-        ax.set_title(f"Correlación {var1} vs {var2}")
+        ax.set_xlabel(var1)
+        ax.set_ylabel(var2)
+        ax.set_title(f"Scatter {var1} vs {var2}")
+        st.pyplot(fig)
+    else:
+        st.warning("No hay suficientes datos válidos para calcular la correlación.")
+
+# ====== Tendencias temporales ======
+if date_cols and numeric_cols:
+    st.subheader("📈 Análisis de tendencia en el tiempo")
+    date_col = st.selectbox("Columna de fecha", date_cols, key="trend_date")
+    trend_var = st.selectbox("Variable numérica", numeric_cols, key="trend_var")
+
+    period_dict = {"Diario": "D", "Semanal": "W", "Mensual": "M", "Trimestral": "Q", "Anual": "Y"}
+    period_label = st.selectbox("Periodo de resumen", list(period_dict.keys()), index=2)
+    period = period_dict[period_label]
+
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    trend = (
+        df.groupby(pd.Grouper(key=date_col, freq=period))[trend_var]
+        .mean()
+        .reset_index()
+        .dropna(subset=[trend_var])
+    )
+
+    if trend.empty:
+        st.warning("No hay datos para graficar en el periodo seleccionado.")
+    else:
+        fig, ax = plt.subplots(figsize=(11, 4))
+        sns.lineplot(x=trend[date_col], y=trend[trend_var], ax=ax, marker="o")
+        ax.set_title(f"Tendencia de {trend_var} ({period_label})")
+        ax.set_xlabel("Fecha")
+        ax.set_ylabel(f"Promedio de {trend_var}")
+        plt.xticks(rotation=45, ha="right")
         st.pyplot(fig)
 
-    # --- Análisis de tendencias ---
-    if date_cols and numeric_cols:
-        st.write("### 📅 Análisis de tendencias")
-        date_col = st.selectbox("Selecciona la variable de fecha", date_cols)
-        trend_var = st.selectbox("Selecciona la variable numérica a graficar", numeric_cols)
-        period = st.selectbox("Periodo de resumen", ["Día", "Semana", "Mes", "Trimestre", "Año"])
+# ====== Pivot Table por Stock Index ======
+stock_col = get_stock_index_col(df)
+if stock_col and date_cols and numeric_cols:
+    st.subheader("📊 Pivot Table: promedio por fecha y Stock Index")
+    date_for_pivot = st.selectbox("Fecha para pivot", date_cols, key="pivot_date")
+    value_var = st.selectbox("Variable numérica a promediar", numeric_cols, key="pivot_value")
 
-        freq_map = {
-            "Día": "D",
-            "Semana": "W",
-            "Mes": "M",
-            "Trimestre": "Q",
-            "Año": "Y"
-        }
+    pivot_df = pd.pivot_table(
+        df,
+        values=value_var,
+        index=date_for_pivot,
+        columns=stock_col,
+        aggfunc="mean"
+    )
+    st.dataframe(pivot_df.head())
 
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        trend_data = (
-            df.groupby(pd.Grouper(key=date_col, freq=freq_map[period]))[trend_var]
-            .mean()
-            .reset_index()
-        )
-
-        fig, ax = plt.subplots(figsize=(10, 5))
-        sns.lineplot(data=trend_data, x=date_col, y=trend_var, ax=ax)
-        ax.set_title(f"Tendencia de {trend_var} ({period})")
-        st.pyplot(fig)
-
-    # --- Pivot table con Stock Index ---
-    if "Stock Index" in df.columns and date_cols:
-        st.write("### 📊 Pivot Table con Stock Index")
-        date_col = date_cols[0]
-        pivot_table = pd.pivot_table(
-            df,
-            values=numeric_cols,
-            index=date_col,
-            columns="Stock Index",
-            aggfunc="mean"
-        )
-        st.dataframe(pivot_table)
+    fig, ax = plt.subplots(figsize=(11, 4))
+    pivot_df.plot(ax=ax)
+    ax.set_title(f"Tendencia promedio de {value_var} por {stock_col}")
+    ax.set_xlabel("Fecha")
+    ax.set_ylabel(f"Promedio de {value_var}")
+    plt.xticks(rotation=45, ha="right")
+    st.pyplot(fig)
