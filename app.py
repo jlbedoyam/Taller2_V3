@@ -70,13 +70,13 @@ if uploaded_file:
         st.subheader("📈 Estadísticas de variables numéricas")
         st.write(df[numeric_cols].describe())
 
-        # Boxplots
-        st.subheader("📦 Boxplots de variables numéricas")
-        for col in numeric_cols:
-            fig, ax = plt.subplots()
-            sns.boxplot(x=df[col], ax=ax, color="skyblue")
-            ax.set_title(f"Boxplot de {col}", fontsize=12)
-            st.pyplot(fig)
+        # Boxplots agrupados
+        st.subheader("📦 Boxplots de variables numéricas (agrupados)")
+        fig, ax = plt.subplots(figsize=(10, 5))
+        df_melted = df[numeric_cols].melt(var_name="Variable", value_name="Valor")
+        sns.boxplot(x="Variable", y="Valor", data=df_melted, ax=ax, palette="Set2")
+        ax.set_title("Boxplots comparativos de variables numéricas", fontsize=12)
+        st.pyplot(fig)
 
     # --- Variables categóricas ---
     if categorical_cols:
@@ -94,8 +94,11 @@ if uploaded_file:
         corr_matrix = df[numeric_cols].corr()
 
         fig, ax = plt.subplots(figsize=(10, 6))
-        sns.heatmap(corr_matrix, annot=True, cmap="Blues", fmt=".2f", ax=ax, cbar=True)
-        ax.set_title("Matriz de correlación de variables numéricas", fontsize=14)
+        sns.heatmap(
+            corr_matrix, annot=True, cmap="RdYlGn", center=0,
+            fmt=".2f", ax=ax, cbar=True
+        )
+        ax.set_title("Matriz de correlación (verde = +, rojo = -)", fontsize=14)
         st.pyplot(fig)
 
         # Selección de dos variables
