@@ -1,241 +1,210 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
+import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 
-# --- Configuración de página ---
-st.set_page_config(
-    page_title="Dashboard de Análisis Económico",
-    page_icon="📊",
-    layout="wide"
-)
+st.set_page_config(page_title="Aplicación de EDA con Streamlit", layout="wide")
 
-# --- Variables globales ---
-if "df" not in st.session_state:
-    st.session_state.df = None
-
-# --- CSS personalizado para sidebar ---
-st.markdown(
-    """
+# --- Estilos CSS ---
+st.markdown("""
     <style>
     /* Sidebar */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1E90FF, #00BFFF);
-        color: white;
-        padding: 20px;
+        background-color: #cce7ff;
     }
-    [data-testid="stSidebar"] h1, 
-    [data-testid="stSidebar"] h2, 
-    [data-testid="stSidebar"] h3, 
-    [data-testid="stSidebar"] h4, 
-    [data-testid="stSidebar"] h5, 
-    [data-testid="stSidebar"] h6, 
-    [data-testid="stSidebar"] p {
-        color: white;
+    [data-testid="stSidebar"] .css-1d391kg, [data-testid="stSidebar"] .css-h5rgaw {
+        color: #003366;
+        font-size: 18px;
     }
-    .sidebar-title {
-        font-size: 22px;
-        font-weight: bold;
-        color: white;
-        text-align: center;
-        margin-bottom: 20px;
+    .section-header {
+        font-size:22px;
+        font-weight:600;
+        margin-bottom:10px;
     }
-    .sidebar-footer {
-        position: absolute;
-        bottom: 20px;
+    .credits {
         font-size: 12px;
+        color: #555;
         text-align: center;
-        color: #f0f0f0;
-        width: 100%;
+        margin-top: 50px;
     }
     </style>
-    """,
-    unsafe_allow_html=True
-)
+""", unsafe_allow_html=True)
 
-# ======================
-# 📌 Menú en Sidebar
-# ======================
-st.sidebar.markdown('<p class="sidebar-title">📊 Dashboard Económico</p>', unsafe_allow_html=True)
+# --- Menú lateral ---
+st.sidebar.title("📊 Menú de navegación")
+menu = st.sidebar.radio("Ir a sección:", [
+    "Carga de datos",
+    "Descripción general",
+    "Visualización de variables",
+    "Correlaciones",
+    "Análisis de tendencia",
+    "Tabla dinámica"
+])
 
-menu = st.sidebar.radio(
-    "Ir a sección:",
-    [
-        "🏠 Carga de Datos",
-        "🔎 EDA",
-        "🔗 Análisis de Correlación",
-        "📈 Análisis de Tendencia",
-        "📊 Pivot Table"
-    ]
-)
+# --- Créditos al final del sidebar ---
+st.sidebar.markdown("<div class='credits'>Creado con ❤️ usando Streamlit</div>", unsafe_allow_html=True)
 
-st.sidebar.markdown('<p class="sidebar-footer">Hecho con ❤️ en Streamlit</p>', unsafe_allow_html=True)
+# --- Carga de datos ---
+if menu == "Carga de datos":
+    st.markdown("<div class='section-header'>📂 Carga de datos</div>", unsafe_allow_html=True)
+    uploaded_file = st.file_uploader("Sube un archivo CSV", type="csv")
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        st.dataframe(df.head())
+        st.session_state["df"] = df
 
-# ======================
-# 📌 Colores de fondo por sección
-# ======================
-bg_colors = {
-    "🏠 Carga de Datos": "#F0F8FF",       # Azul claro
-    "🔎 EDA": "#FAFAD2",                 # Amarillo pálido
-    "🔗 Análisis de Correlación": "#E6E6FA", # Lavanda
-    "📈 Análisis de Tendencia": "#FFE4E1",   # Rosa claro
-    "📊 Pivot Table": "#F5F5DC"          # Beige
-}
-
-st.markdown(
-    f"""
-    <style>
-    [data-testid="stAppViewContainer"] {{
-        background-color: {bg_colors.get(menu, "#FFFFFF")};
-    }}
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-# ======================
-# 📌 Secciones
-# ======================
-
-# --- CARGA DE DATOS ---
-if menu == "🏠 Carga de Datos":
-    st.header("📂 Carga de Datos")
-
-    file = st.file_uploader("Sube tu archivo CSV", type="csv")
-    if file is not None:
-        df = pd.read_csv(file)
-
-        # Intentar convertir columnas de fecha automáticamente
-        for col in df.columns:
-            if "date" in col.lower():
-                try:
-                    df[col] = pd.to_datetime(df[col])
-                except:
-                    pass
-
-        st.session_state.df = df
-        st.success("✅ Datos cargados correctamente")
-        st.write(df.head())
-
-# --- EDA ---
-elif menu == "🔎 EDA":
-    st.header("🔎 Análisis Exploratorio de Datos (EDA)")
-
-    if st.session_state.df is not None:
-        df = st.session_state.df
-        st.write("Vista previa de los datos:")
-        st.write(df.head())
-
-        st.subheader("📊 Estadísticas descriptivas")
-        st.write(df.describe(include="all"))
-
-        st.subheader("📉 Distribuciones (Boxplot)")
-        num_cols = df.select_dtypes(include=["float64", "int64"]).columns
-        if not num_cols.empty:
-            scaler = MinMaxScaler()
-            df_scaled = pd.DataFrame(scaler.fit_transform(df[num_cols]), columns=num_cols)
-
-            fig, ax = plt.subplots(figsize=(10, 6))
-            sns.boxplot(data=df_scaled, ax=ax)
-            st.pyplot(fig)
-        else:
-            st.warning("⚠️ No hay variables numéricas para mostrar boxplots.")
+# --- Descripción general ---
+elif menu == "Descripción general":
+    st.markdown("<div class='section-header'>ℹ️ Descripción general</div>", unsafe_allow_html=True)
+    if "df" in st.session_state:
+        df = st.session_state["df"]
+        st.write("Dimensiones del dataset:", df.shape)
+        st.write("Tipos de datos:")
+        st.write(df.dtypes)
+        st.write("Valores nulos por columna:")
+        st.write(df.isnull().sum())
     else:
-        st.warning("⚠️ Por favor carga primero un archivo CSV.")
+        st.warning("Primero carga un archivo en la sección 'Carga de datos'.")
 
-# --- CORRELACIÓN ---
-elif menu == "🔗 Análisis de Correlación":
-    st.header("🔗 Análisis de Correlación")
+# --- Visualización de variables ---
+elif menu == "Visualización de variables":
+    st.markdown("<div class='section-header'>📈 Visualización de variables</div>", unsafe_allow_html=True)
+    if "df" in st.session_state:
+        df = st.session_state["df"]
+        numeric_cols = df.select_dtypes(include=np.number).columns
+        cat_cols = df.select_dtypes(include="object").columns
 
-    if st.session_state.df is not None:
-        df = st.session_state.df
-        num_cols = df.select_dtypes(include=["float64", "int64"]).columns
+        # Boxplots
+        normalize = st.checkbox("Normalizar con MinMaxScaler antes del boxplot")
+        if normalize:
+            scaler = MinMaxScaler()
+            df_scaled = pd.DataFrame(scaler.fit_transform(df[numeric_cols]), columns=numeric_cols)
+        else:
+            df_scaled = df[numeric_cols]
 
-        if len(num_cols) >= 2:
-            var1 = st.selectbox("Selecciona la primera variable:", num_cols, index=0)
-            var2 = st.selectbox("Selecciona la segunda variable:", num_cols, index=1)
+        if not df_scaled.empty:
+            st.write("### Boxplots variables numéricas")
+            fig, axes = plt.subplots(len(numeric_cols), 1, figsize=(6, 4 * len(numeric_cols)))
+            if len(numeric_cols) == 1:
+                axes = [axes]
+            for i, col in enumerate(numeric_cols):
+                sns.boxplot(data=df_scaled, x=col, ax=axes[i])
+                axes[i].set_title(f"Boxplot de {col}")
+            st.pyplot(fig)
 
-            normalize = st.checkbox("Normalizar datos con MinMaxScaler")
+        # Histogramas categóricos
+        if len(cat_cols) > 0:
+            st.write("### Histogramas variables categóricas")
+            for col in cat_cols:
+                fig, ax = plt.subplots()
+                df[col].value_counts().plot(kind="bar", ax=ax)
+                ax.set_title(f"Frecuencia de {col}")
+                st.pyplot(fig)
+    else:
+        st.warning("Primero carga un archivo en la sección 'Carga de datos'.")
+
+# --- Correlaciones ---
+elif menu == "Correlaciones":
+    st.markdown("<div class='section-header'>🔗 Análisis de correlaciones</div>", unsafe_allow_html=True)
+    if "df" in st.session_state:
+        df = st.session_state["df"]
+        numeric_cols = df.select_dtypes(include=np.number).columns
+
+        if len(numeric_cols) > 1:
+            # Heatmap
+            st.write("### Heatmap de correlaciones")
+            corr = df[numeric_cols].corr()
+            fig, ax = plt.subplots(figsize=(8, 6))
+            sns.heatmap(corr, cmap="RdYlGn", center=0, annot=True, ax=ax)
+            st.pyplot(fig)
+
+            # Correlación entre dos variables
+            st.write("### Correlación entre dos variables numéricas")
+            var1 = st.selectbox("Selecciona la primera variable", numeric_cols, index=0)
+            var2 = st.selectbox("Selecciona la segunda variable", numeric_cols, index=1)
+            normalize_corr = st.checkbox("Normalizar con MinMaxScaler", key="corr_norm")
 
             if var1 == var2:
-                st.error("❌ No tiene sentido calcular la correlación con la misma variable.")
+                st.error("⚠️ No tiene sentido correlacionar una variable consigo misma.")
             else:
                 data_corr = df[[var1, var2]].dropna()
-
-                if normalize:
+                if normalize_corr:
                     scaler = MinMaxScaler()
-                    data_corr = pd.DataFrame(
-                        scaler.fit_transform(data_corr),
-                        columns=[var1, var2]
-                    )
+                    data_corr[[var1, var2]] = scaler.fit_transform(data_corr[[var1, var2]])
 
-                corr_value = data_corr[var1].corr(data_corr[var2])
+                corr_value = data_corr[var1].corr(data_corr[var2], method="pearson")
+                st.write(f"Coeficiente de correlación de **Pearson** entre {var1} y {var2}: `{corr_value:.2f}`")
 
-                st.success(f"📌 Índice de correlación de Pearson entre **{var1}** y **{var2}**: `{corr_value:.3f}`")
-
-                fig, ax = plt.subplots(figsize=(7, 5))
+                fig, ax = plt.subplots()
                 sns.scatterplot(data=data_corr, x=var1, y=var2, ax=ax)
                 st.pyplot(fig)
         else:
-            st.warning("⚠️ Se requieren al menos dos variables numéricas para este análisis.")
+            st.warning("No hay suficientes variables numéricas para calcular correlaciones.")
     else:
-        st.warning("⚠️ Por favor carga primero un archivo CSV.")
+        st.warning("Primero carga un archivo en la sección 'Carga de datos'.")
 
-# --- TENDENCIA ---
-elif menu == "📈 Análisis de Tendencia":
-    st.header("📈 Análisis de Tendencia")
+# --- Análisis de tendencia ---
+elif menu == "Análisis de tendencia":
+    st.markdown("<div class='section-header'>📉 Análisis de tendencia</div>", unsafe_allow_html=True)
+    if "df" in st.session_state:
+        df = st.session_state["df"]
+        date_cols = df.select_dtypes(include="datetime").columns
+        if not list(date_cols):
+            for col in df.columns:
+                try:
+                    df[col] = pd.to_datetime(df[col])
+                    date_cols = [col]
+                    break
+                except:
+                    pass
+        if date_cols:
+            date_col = st.selectbox("Selecciona la columna de fecha", date_cols)
+            numeric_cols = df.select_dtypes(include=np.number).columns
+            trend_var = st.selectbox("Selecciona variable numérica a analizar", numeric_cols)
+            period = st.selectbox("Periodo de resumen", ["Día", "Mes", "Trimestre", "Año"])
 
-    if st.session_state.df is not None:
-        df = st.session_state.df
+            freq_map = {"Día": "D", "Mes": "M", "Trimestre": "Q", "Año": "Y"}
+            trend_data = df.groupby(pd.Grouper(key=date_col, freq=freq_map[period]))[trend_var].mean().reset_index()
 
-        date_cols = df.select_dtypes(include=["datetime64[ns]"]).columns
-        num_cols = df.select_dtypes(include=["float64", "int64"]).columns
-
-        if not date_cols.empty and not num_cols.empty:
-            date_col = st.selectbox("Selecciona la columna de fecha:", date_cols)
-            trend_var = st.selectbox("Selecciona la variable numérica:", num_cols)
-
-            period = st.selectbox("Selecciona el periodo de resumen:",
-                                  ["Día", "Semana", "Mes", "Trimestre", "Año"])
-
-            freq_map = {"Día": "D", "Semana": "W", "Mes": "M", "Trimestre": "Q", "Año": "Y"}
-            freq = freq_map[period]
-
-            trend_data = df.groupby(pd.Grouper(key=date_col, freq=freq))[trend_var].mean().reset_index()
-
-            st.line_chart(trend_data.set_index(date_col)[trend_var])
+            fig, ax = plt.subplots(figsize=(10, 5))
+            sns.lineplot(data=trend_data, x=date_col, y=trend_var, ax=ax)
+            ax.set_title(f"Tendencia de {trend_var} por {period}")
+            st.pyplot(fig)
         else:
-            st.warning("⚠️ Se requieren columnas de fecha y al menos una numérica.")
+            st.warning("No se encontró columna de tipo fecha en el dataset.")
     else:
-        st.warning("⚠️ Por favor carga primero un archivo CSV.")
+        st.warning("Primero carga un archivo en la sección 'Carga de datos'.")
 
-# --- PIVOT TABLE ---
-elif menu == "📊 Pivot Table":
-    st.header("📊 Pivot Table")
-
-    if st.session_state.df is not None:
-        df = st.session_state.df
-
-        date_cols = df.select_dtypes(include=["datetime64[ns]"]).columns
-        cat_cols = df.select_dtypes(include=["object", "category"]).columns
-        num_cols = df.select_dtypes(include=["float64", "int64"]).columns
-
-        if not date_cols.empty and not cat_cols.empty and not num_cols.empty:
-            date_col = st.selectbox("Selecciona la columna de fecha:", date_cols)
-            cat_col = st.selectbox("Selecciona la variable categórica:", cat_cols)
-            value_col = st.selectbox("Selecciona la variable numérica:", num_cols)
-
-            pivot_table = pd.pivot_table(
-                df,
-                values=value_col,
-                index=date_col,
-                columns=cat_col,
-                aggfunc="mean"
-            )
-
-            st.dataframe(pivot_table)
+# --- Tabla dinámica ---
+elif menu == "Tabla dinámica":
+    st.markdown("<div class='section-header'>📊 Tabla dinámica</div>", unsafe_allow_html=True)
+    if "df" in st.session_state:
+        df = st.session_state["df"]
+        if "Stock Index" in df.columns:
+            date_cols = df.select_dtypes(include="datetime").columns
+            if not list(date_cols):
+                for col in df.columns:
+                    try:
+                        df[col] = pd.to_datetime(df[col])
+                        date_cols = [col]
+                        break
+                    except:
+                        pass
+            if date_cols:
+                date_col = date_cols[0]
+                pivot = pd.pivot_table(
+                    df,
+                    values=df.select_dtypes(include=np.number).columns,
+                    index=date_col,
+                    columns="Stock Index",
+                    aggfunc="mean"
+                )
+                st.dataframe(pivot)
+            else:
+                st.warning("No se encontró columna de fecha para la tabla dinámica.")
         else:
-            st.warning("⚠️ El dataset necesita al menos: una columna de fecha, una categórica y una numérica.")
+            st.warning("No existe la columna 'Stock Index' en el dataset.")
     else:
-        st.warning("⚠️ Por favor carga primero un archivo CSV.")
+        st.warning("Primero carga un archivo en la sección 'Carga de datos'.")
