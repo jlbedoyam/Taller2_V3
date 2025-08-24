@@ -177,3 +177,34 @@ if uploaded_file:
             ax.set_xlabel("Tiempo")
             ax.set_ylabel(num_col)
             st.pyplot(fig)
+
+    # --- Tendencias en el tiempo con Pivot Table ---
+    if date_cols and "Stock Index" in df.columns and numeric_cols:
+        st.subheader("📊 Pivot Table de Tendencias por Stock Index")
+
+        date_col = st.selectbox("Seleccione la columna de fecha", date_cols)
+        num_col = st.selectbox("Seleccione la variable numérica para promediar", numeric_cols)
+
+        if date_col and num_col:
+            # Crear tabla pivote
+            pivot_df = pd.pivot_table(
+                df,
+                index=date_col,
+                columns="Stock Index",
+                values=num_col,
+                aggfunc="mean"
+            )
+
+            # Mostrar tabla pivoteada
+            st.write("📌 **Tabla pivoteada (promedio por fecha y Stock Index):**")
+            st.dataframe(pivot_df.head(10))
+
+            # Graficar tendencias
+            st.write("📈 **Tendencia temporal por Stock Index**")
+            fig, ax = plt.subplots(figsize=(12, 6))
+            pivot_df.plot(ax=ax, marker="o")
+            ax.set_title(f"Tendencia de {num_col} por Stock Index", fontsize=14)
+            ax.set_xlabel("Fecha")
+            ax.set_ylabel(f"Promedio de {num_col}")
+            st.pyplot(fig)
+
