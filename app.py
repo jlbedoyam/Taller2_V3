@@ -1,193 +1,173 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
+from scipy.stats import zscore
 
-# =============================
-# CONFIGURACIÓN DE PÁGINA
-# =============================
-st.set_page_config(page_title="📊 Análisis Económico y Financiero", layout="wide")
+# Configuración general
+st.set_page_config(page_title="EDA Interactivo", layout="wide")
 
-# =============================
-# ESTILOS CSS
-# =============================
+# Paleta de colores amigable
+SECTION_COLORS = {
+    "Descripción General": "#F3F9FF",   # Azul muy claro
+    "Análisis Numérico": "#FFF5E6",     # Naranja claro
+    "Análisis Categórico": "#F0FFF0",   # Verde menta
+    "Correlación": "#FFF0F5",           # Rosado claro
+    "Tendencias": "#F9FFF3",            # Verde pastel
+    "Pivot Table": "#FFFFE0"            # Amarillo suave
+}
+
+# Sidebar con estilo
 st.markdown("""
-<style>
-    .sidebar .sidebar-content {
-        background: linear-gradient(180deg, #66b2ff, #004080);
-        color: white;
-    }
-    .mainframe {
-        padding: 20px;
-        border-radius: 15px;
-        margin-bottom: 20px;
+    <style>
+    [data-testid=stSidebar] {
+        background-color: #87CEFA; /* azul claro */
         color: black;
     }
-    .correlation {background: linear-gradient(135deg, #ffecd2, #fcb69f);}
-    .eda {background: linear-gradient(135deg, #fff6a3, #ffd966);}
-    .trend {background: linear-gradient(135deg, #a8edea, #fed6e3);}
-    .pivot {background: linear-gradient(135deg, #d4a5ff, #fbc2eb);}
-    .credits {text-align:center; font-size: 13px; color: gray; margin-top: 60px;}
-</style>
+    .sidebar-title {
+        font-size: 22px !important;
+        font-weight: bold;
+        color: white;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    </style>
 """, unsafe_allow_html=True)
 
-# =============================
-# SIDEBAR MENU
-# =============================
-st.sidebar.title("📌 Menú de navegación")
-menu = st.sidebar.radio("Ir a:", [
-    "Carga de datos",
-    "EDA",
-    "Análisis de correlación",
-    "Análisis de tendencia",
-    "Pivot Table"
-])
+with st.sidebar:
+    st.markdown("<div class='sidebar-title'>📊 Menú Principal</div>", unsafe_allow_html=True)
+    menu = st.radio("Ir a la sección:", 
+                    ["Descripción General", "Análisis Numérico", "Análisis Categórico", 
+                     "Correlación", "Tendencias", "Pivot Table"])
 
-# =============================
-# CARGA DE DATOS
-# =============================
-if "df" not in st.session_state:
-    st.session_state.df = None
+# Subir archivo
+st.sidebar.markdown("### 📂 Cargar CSV")
+uploaded_file = st.sidebar.file_uploader("Elige un archivo CSV", type=["csv"])
 
-if menu == "Carga de datos":
-    with st.expander("📂 **Carga de datos**", expanded=True):
-        st.markdown('<div class="mainframe eda">', unsafe_allow_html=True)
+if uploaded_file:
+    df = pd.read_csv(uploaded_file)
 
-        uploaded_file = st.file_uploader("Sube un archivo CSV", type=["csv"])
-        if uploaded_file:
-            df = pd.read_csv(uploaded_file)
+    # Conversión de fechas
+    for col in df.columns:
+        try:
+            df[col] = pd.to_datetime(df[col], errors='ignore')
+        except Exception:
+            pass
 
-            # Convertir columnas de fecha si es posible
-            for col in df.columns:
-                try:
-                    df[col] = pd.to_datetime(df[col], errors="ignore")
-                except Exception:
-                    pass
+    # Detectar tipos
+    numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+    categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
+    date_cols = df.select_dtypes(include=['datetime64[ns]']).columns.tolist()
 
-            st.session_state.df = df
-            st.success("✅ Datos cargados correctamente")
-            st.dataframe(df.head().style.background_gradient(cmap="coolwarm"))
+    # ===== Sección: Descripción General =====
+    if menu == "Descripción General":
+        st.markdown(f"<div style='background-color:{SECTION_COLORS[menu]}; padding:20px; border-radius:10px;'>", unsafe_allow_html=True)
+        st.header("📊 Descripción General de los Datos")
+        st.write(df.head())
+        st.write("**Información del dataset:**")
+        st.write(df.info())
+        st.write("**Datos nulos por columna:**")
+        st.write(df.isnull().sum())
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown('</div>', unsafe_allow_html=True)
+    # ===== Sección: Análisis Numérico =====
+    elif menu == "Análisis Numérico":
+        st.markdown(f"<div style='background-color:{SECTION_COLORS[menu]}; padding:20px; border-radius:10px;'>", unsafe_allow_html=True)
+        st.header("📈 Análisis Numérico")
+        st.write(df[numeric_cols].describe())
 
-# =============================
-# EDA
-# =============================
-if menu == "EDA" and st.session_state.df is not None:
-    df = st.session_state.df
-    with st.expander("🔍 **Análisis Exploratorio de Datos (EDA)**", expanded=True):
-        st.markdown('<div class="mainframe eda">', unsafe_allow_html=True)
+        # Outliers
+        st.subheader("🔎 Detección de valores atípicos (Z-score > 3)")
+        outliers = (df[numeric_cols].apply(zscore).abs() > 3).sum()
+        st.write(outliers)
 
-        st.subheader("📊 Resumen estadístico")
-        st.dataframe(df.describe(include="all").style.background_gradient(cmap="plasma"))
+        normalize = st.checkbox("Normalizar con MinMaxScaler antes de boxplots", key="normalize_boxplot")
+        data_plot = df[numeric_cols]
+        if normalize:
+            scaler = MinMaxScaler()
+            data_plot = pd.DataFrame(scaler.fit_transform(data_plot), columns=numeric_cols)
 
-        st.subheader("❌ Datos nulos por columna")
-        st.dataframe(df.isnull().sum().to_frame("Nulos").style.background_gradient(cmap="YlOrRd"))
+        fig, axes = plt.subplots(nrows=(len(numeric_cols) // 2) + 1, ncols=2, figsize=(12, 6))
+        axes = axes.flatten()
+        for i, col in enumerate(numeric_cols):
+            sns.boxplot(data=data_plot[col], ax=axes[i])
+            axes[i].set_title(col)
+        plt.tight_layout()
+        st.pyplot(fig)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        st.subheader("📦 Valores atípicos (IQR)")
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        outliers_summary = {}
-        for col in numeric_cols:
-            Q1 = df[col].quantile(0.25)
-            Q3 = df[col].quantile(0.75)
-            IQR = Q3 - Q1
-            outliers = df[(df[col] < Q1 - 1.5*IQR) | (df[col] > Q3 + 1.5*IQR)][col]
-            outliers_summary[col] = len(outliers)
-        st.dataframe(pd.DataFrame.from_dict(outliers_summary, orient="index", columns=["Cantidad de atípicos"]).style.background_gradient(cmap="coolwarm"))
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# =============================
-# ANÁLISIS DE CORRELACIÓN
-# =============================
-if menu == "Análisis de correlación" and st.session_state.df is not None:
-    df = st.session_state.df
-    with st.expander("📈 **Análisis de Correlación**", expanded=True):
-        st.markdown('<div class="mainframe correlation">', unsafe_allow_html=True)
-
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        if len(numeric_cols) >= 2:
-            normalize_corr = st.checkbox("🔄 Normalizar datos (MinMaxScaler)")
-
-            if normalize_corr:
-                scaler = MinMaxScaler()
-                data_corr = pd.DataFrame(scaler.fit_transform(df[numeric_cols]), columns=numeric_cols)
-            else:
-                data_corr = df[numeric_cols]
-
-            st.subheader("🔥 Heatmap de correlaciones")
-            corr_matrix = data_corr.corr()
-            fig, ax = plt.subplots(figsize=(8,6))
-            sns.heatmap(corr_matrix, annot=True, cmap="Spectral", center=0, ax=ax)
+    # ===== Sección: Análisis Categórico =====
+    elif menu == "Análisis Categórico":
+        st.markdown(f"<div style='background-color:{SECTION_COLORS[menu]}; padding:20px; border-radius:10px;'>", unsafe_allow_html=True)
+        st.header("📊 Análisis Categórico")
+        for col in categorical_cols:
+            fig, ax = plt.subplots(figsize=(6, 4))
+            df[col].value_counts().plot(kind='bar', ax=ax)
+            ax.set_title(col)
             st.pyplot(fig)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-            var1 = st.selectbox("Selecciona la primera variable:", numeric_cols, index=0)
-            var2 = st.selectbox("Selecciona la segunda variable:", numeric_cols, index=1)
+    # ===== Sección: Correlación =====
+    elif menu == "Correlación":
+        st.markdown(f"<div style='background-color:{SECTION_COLORS[menu]}; padding:20px; border-radius:10px;'>", unsafe_allow_html=True)
+        st.header("🔗 Análisis de Correlación")
+        corr = df[numeric_cols].corr()
 
-            if var1 == var2:
-                st.error("⚠️ No tiene sentido correlacionar una variable consigo misma.")
-            else:
-                corr_value = data_corr[var1].corr(data_corr[var2])
-                st.success(f"📌 Correlación de Pearson entre **{var1}** y **{var2}**: **{corr_value:.2f}**")
+        fig, ax = plt.subplots(figsize=(8, 6))
+        sns.heatmap(corr, annot=True, cmap="RdYlGn", ax=ax, center=0, vmin=-1, vmax=1)
+        st.pyplot(fig)
 
-                fig, ax = plt.subplots()
-                sns.scatterplot(x=data_corr[var1], y=data_corr[var2], hue=data_corr[var1], palette="coolwarm", ax=ax)
-                st.pyplot(fig)
+        normalize_corr = st.checkbox("Normalizar variables antes de correlación", key="normalize_corr")
+        data_corr = df[numeric_cols]
+        if normalize_corr:
+            scaler = MinMaxScaler()
+            data_corr = pd.DataFrame(scaler.fit_transform(data_corr), columns=numeric_cols)
 
-        st.markdown('</div>', unsafe_allow_html=True)
+        var1 = st.selectbox("Variable 1", numeric_cols, index=0)
+        var2 = st.selectbox("Variable 2", numeric_cols, index=1)
+        if var1 == var2:
+            st.error("⚠️ No tiene sentido correlacionar una variable consigo misma.")
+        else:
+            corr_value = data_corr[var1].corr(data_corr[var2])
+            st.write(f"Coeficiente de correlación de Pearson entre **{var1}** y **{var2}**: **{corr_value:.2f}**")
+            fig, ax = plt.subplots()
+            ax.scatter(data_corr[var1], data_corr[var2])
+            ax.set_xlabel(var1)
+            ax.set_ylabel(var2)
+            st.pyplot(fig)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-# =============================
-# ANÁLISIS DE TENDENCIA
-# =============================
-if menu == "Análisis de tendencia" and st.session_state.df is not None:
-    df = st.session_state.df
-    with st.expander("📅 **Análisis de Tendencia Temporal**", expanded=True):
-        st.markdown('<div class="mainframe trend">', unsafe_allow_html=True)
-
-        date_cols = df.select_dtypes(include=['datetime64[ns]', 'datetime64[ns, UTC]']).columns
-        if len(date_cols) > 0:
-            date_col = st.selectbox("Selecciona la variable de tipo fecha:", date_cols)
-            num_trend_vars = df.select_dtypes(include=[np.number]).columns
-            trend_var = st.selectbox("Selecciona la variable numérica:", num_trend_vars)
-
-            period_dict = {"D": "Diario", "W": "Semanal", "M": "Mensual", "Q": "Trimestral", "Y": "Anual"}
-            period = st.selectbox("Selecciona el periodo:", list(period_dict.keys()), format_func=lambda x: period_dict[x])
+    # ===== Sección: Tendencias =====
+    elif menu == "Tendencias":
+        st.markdown(f"<div style='background-color:{SECTION_COLORS[menu]}; padding:20px; border-radius:10px;'>", unsafe_allow_html=True)
+        st.header("📅 Análisis de Tendencias")
+        if date_cols:
+            date_col = date_cols[0]
+            trend_var = st.selectbox("Selecciona variable numérica", numeric_cols)
+            period = st.selectbox("Selecciona periodo de resumen", ["D", "W", "M", "Q", "Y"], index=2)
 
             trend_data = df.groupby(pd.Grouper(key=date_col, freq=period))[trend_var].mean().reset_index()
-
-            fig, ax = plt.subplots()
-            sns.lineplot(data=trend_data, x=date_col, y=trend_var, marker="o", linewidth=2.5, color="#ff5733")
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.plot(trend_data[date_col], trend_data[trend_var], marker='o')
+            ax.set_title(f"Tendencia de {trend_var} ({period})")
             st.pyplot(fig)
         else:
-            st.info("⚠️ No se detectaron columnas de tipo fecha.")
+            st.warning("⚠️ No se detectaron columnas de tipo fecha.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# =============================
-# PIVOT TABLE
-# =============================
-if menu == "Pivot Table" and st.session_state.df is not None:
-    df = st.session_state.df
-    with st.expander("📊 **Pivot Table con Stock Index**", expanded=True):
-        st.markdown('<div class="mainframe pivot">', unsafe_allow_html=True)
-
-        if "stock index" in df.columns:
-            pivot_table = pd.pivot_table(
-                df,
-                values=df.select_dtypes(include=[np.number]).columns.tolist(),
-                index="date" if "date" in df.columns else df.index,
-                columns="stock index",
-                aggfunc=np.mean
-            )
-            st.dataframe(pivot_table.style.background_gradient(cmap="coolwarm"))
+    # ===== Sección: Pivot Table =====
+    elif menu == "Pivot Table":
+        st.markdown(f"<div style='background-color:{SECTION_COLORS[menu]}; padding:20px; border-radius:10px;'>", unsafe_allow_html=True)
+        st.header("📊 Pivot Table con Stock Index")
+        if "stock index" in df.columns and date_cols:
+            stock_col = "stock index"
+            date_col = date_cols[0]
+            pivot = pd.pivot_table(df, values=numeric_cols, index=date_col, columns=stock_col, aggfunc='mean')
+            st.dataframe(pivot)
         else:
-            st.error("⚠️ No existe la columna `stock index` en el dataset.")
+            st.warning("⚠️ No se encontró columna 'stock index' o columna de tipo fecha.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# =============================
-# CREDITOS
-# =============================
-st.markdown('<div class="credits">🌟 Creado con ❤️ y muchos colores usando Streamlit</div>', unsafe_allow_html=True)
+# Créditos al final
+st.markdown("<hr><center><small>✨ Aplicación desarrollada con Streamlit ✨</small></center>", unsafe_allow_html=True)
