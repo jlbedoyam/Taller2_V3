@@ -208,39 +208,48 @@ if len(numeric_cols) >= 2:
     st.pyplot(fig)
 
 # ====== Correlación entre dos variables (con opción MinMax) ======
+# --- Análisis de correlación entre dos variables ---
+st.write("### 🔗 Análisis de correlación entre dos variables numéricas")
+
 if len(numeric_cols) >= 2:
-    st.subheader("🔗 Análisis de correlación entre dos variables")
+    # Por defecto seleccionamos dos variables diferentes
+    var1 = st.selectbox("Selecciona la primera variable", numeric_cols, index=0)
+    var2 = st.selectbox("Selecciona la segunda variable", numeric_cols, index=1)
 
-    c1, c2 = st.columns(2)
-    with c1:
-        var1 = st.selectbox("Variable X", numeric_cols, key="corr_x")
-    with c2:
-        var2 = st.selectbox("Variable Y", numeric_cols, key="corr_y")
+    # Checkbox para normalización con MinMaxScaler
+    normalize_corr = st.checkbox("Normalizar variables con MinMaxScaler (0-1)", key="corr_norm")
 
-    norm_corr = st.checkbox("Normalizar X e Y con MinMaxScaler (0-1)", value=False, key="corr_norm")
-
-    data_corr = df[[var1, var2]].copy()
-    data_corr = data_corr.apply(pd.to_numeric, errors="coerce").dropna()
-
-    if norm_corr and not data_corr.empty:
-        scaler = MinMaxScaler()
-        data_corr[[var1, var2]] = scaler.fit_transform(data_corr[[var1, var2]])
-
-    # Convertimos a Series 1D de forma segura (evita ambigüedad por nombres duplicados)
-    x = pd.Series(data_corr[var1].values, name=var1)
-    y = pd.Series(data_corr[var2].values, name=var2)
-
-    if len(x) >= 2 and len(y) >= 2:
-        corr_value = x.corr(y)
-        st.markdown(f"**Coeficiente de Pearson ({var1} vs {var2}):** `{corr_value:.4f}`")
-        fig, ax = plt.subplots(figsize=(6, 4))
-        sns.scatterplot(x=x, y=y, ax=ax)
-        ax.set_xlabel(var1)
-        ax.set_ylabel(var2)
-        ax.set_title(f"Scatter {var1} vs {var2}")
-        st.pyplot(fig)
+    # Validamos que no sean la misma variable
+    if var1 == var2:
+        st.error("⚠️ No tiene sentido calcular la correlación de una variable consigo misma. Selecciona dos variables diferentes.")
     else:
-        st.warning("No hay suficientes datos válidos para calcular la correlación.")
+        data_corr = df[[var1, var2]].dropna()
+
+        if normalize_corr:
+            scaler = MinMaxScaler()
+            data_corr[[var1, var2]] = scaler.fit_transform(data_corr[[var1, var2]])
+
+        # Convertimos en series 1D
+        x = data_corr[var1].astype(float).squeeze()
+        y = data_corr[var2].astype(float).squeeze()
+
+        # Correlación de Pearson
+        corr_value = x.corr(y, method="pearson")
+
+        st.write(f"Coeficiente de correlación de **Pearson** entre **{var1}** y **{var2}**: `{corr_value:.2f}`")
+
+        fig, ax = plt.subplots(figsize=(5, 4))
+        sns.scatterplot(x=x, y=y, ax=ax)
+        ax.set_title(f"Correlación {var1} vs {var2}")
+        st.pyplot(fig)
+
+
+
+
+# ===
+
+
+
 
 # ====== Tendencias temporales ======
 if date_cols and numeric_cols:
