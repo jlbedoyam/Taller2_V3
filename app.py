@@ -65,6 +65,30 @@ if uploaded_file:
     numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
     categorical_cols = df.select_dtypes(exclude=["int64", "float64"]).columns.tolist()
 
+    # --- Resumen de Nulos y Outliers ---
+    st.subheader("⚠️ Resumen de valores nulos y atípicos")
+
+    nulls = df.isnull().sum()
+    nulls_pct = (nulls / len(df)) * 100
+
+    outlier_summary = {}
+    for col in numeric_cols:
+        Q1 = df[col].quantile(0.25)
+        Q3 = df[col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower = Q1 - 1.5 * IQR
+        upper = Q3 + 1.5 * IQR
+        outliers = ((df[col] < lower) | (df[col] > upper)).sum()
+        outlier_summary[col] = outliers
+
+    resumen = pd.DataFrame({
+        "Nulos": nulls,
+        "Porcentaje Nulos (%)": nulls_pct.round(2),
+        "Atípicos (solo numéricas)": [outlier_summary.get(col, "-") for col in df.columns]
+    })
+
+    st.dataframe(resumen)
+
     # --- Estadísticos numéricos ---
     if numeric_cols:
         st.subheader("📈 Estadísticas de variables numéricas")
@@ -89,29 +113,4 @@ if uploaded_file:
 
     # --- Análisis de correlación ---
     if len(numeric_cols) >= 2:
-        st.subheader("🧩 Matriz de correlación (Heatmap)")
-
-        corr_matrix = df[numeric_cols].corr()
-
-        fig, ax = plt.subplots(figsize=(10, 6))
-        sns.heatmap(
-            corr_matrix, annot=True, cmap="RdYlGn", center=0,
-            fmt=".2f", ax=ax, cbar=True
-        )
-        ax.set_title("Matriz de correlación (verde = +, rojo = -)", fontsize=14)
-        st.pyplot(fig)
-
-        # Selección de dos variables
-        st.subheader("🔗 Correlación entre dos variables numéricas")
-        col1 = st.selectbox("Seleccione la primera variable", numeric_cols)
-        col2 = st.selectbox("Seleccione la segunda variable", numeric_cols)
-
-        if col1 and col2:
-            corr_value = df[col1].corr(df[col2])
-            st.write(f"**Coeficiente de correlación de Pearson entre {col1} y {col2}:** `{corr_value:.4f}`")
-
-            # Gráfico de dispersión
-            fig, ax = plt.subplots()
-            sns.scatterplot(x=df[col1], y=df[col2], ax=ax, color="purple", alpha=0.7)
-            ax.set_title(f"Dispersión entre {col1} y {col2}", fontsize=12)
-            st.pyplot(fig)
+        st.subheader("🧩 Matriz de correlación (Heatmap)
