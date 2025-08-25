@@ -5,6 +5,59 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from scipy.stats import zscore
 import numpy as np
+import requests
+import json
+import base64
+
+# ======================
+# LLM CONFIGURATION
+# ======================
+# Use the provided API key placeholder.
+API_KEY = ""
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key="
+MODEL_NAME = "gemini-2.5-flash-preview-05-20"
+
+def get_gemini_response(prompt_parts):
+    """
+    Makes a synchronous call to the Gemini API to get a response.
+    """
+    try:
+        # Construct the payload for the API request
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": part} for part in prompt_parts]
+                }
+            ],
+            "generationConfig": {
+                "responseMimeType": "text/plain",
+            }
+        }
+        
+        # Make the API call
+        response = requests.post(
+            f"{API_URL}{API_KEY}",
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(payload)
+        )
+        response.raise_for_status() # Raise an exception for bad status codes
+        
+        # Parse the JSON response
+        result = response.json()
+        
+        # Extract and return the text
+        if result.get("candidates") and result["candidates"][0].get("content") and result["candidates"][0]["content"].get("parts"):
+            return result["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            return "No se pudo obtener una respuesta del LLM."
+
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error en la llamada a la API del LLM: {e}")
+        return None
+    except Exception as e:
+        st.error(f"Error inesperado: {e}")
+        return None
 
 # ======================
 # ESTILOS
@@ -35,7 +88,7 @@ menu = st.sidebar.radio(
     "📊 Menú de navegación",
     ["Carga de datos", "Descripción general", "Análisis de valores nulos y atípicos",
      "Visualización numérica", "Visualización categórica", "Correlaciones",
-     "Análisis de tendencias", "Pivot Table"]
+     "Análisis de tendencias", "Pivot Table", "Análisis con LLM"]
 )
 
 # ======================
@@ -310,3 +363,59 @@ if menu == "Pivot Table" and st.session_state.df is not None:
         st.dataframe(pivot.head())
     else:
         st.warning("Se necesitan al menos una columna de fecha, una categórica y una numérica.")
+
+# ======================
+# LLM ANALYSIS
+# ======================
+if menu == "Análisis con LLM" and st.session_state.df is not None:
+    df = st.session_state.df
+    st.header("🧠 Análisis con LLM")
+    
+    # Generate EDA summary to provide context for the LLM
+    eda_summary = """
+    Resumen del análisis exploratorio de datos (EDA) del dataset cargado:
+    
+    1.  **Vista previa del DataFrame:**
+    {}
+    
+    2.  **Tipos de datos:**
+    {}
+    
+    3.  **Estadísticas descriptivas (solo para columnas numéricas):**
+    {}
+    
+    4.  **Recuento de valores nulos:**
+    {}
+    
+    5.  **Análisis de valores atípicos (Z-score > 3):**
+    {}
+    
+    """.format(
+        df.head().to_markdown(),
+        df.dtypes.to_markdown(),
+        df.describe().to_markdown(),
+        df.isnull().sum().to_markdown(),
+        (df.select_dtypes(include=np.number).apply(lambda x: zscore(x, nan_policy='omit')).abs() > 3).sum().to_markdown()
+    )
+    
+    st.subheader("Tu Asistente de Análisis de Datos")
+    st.info("Hazle una pregunta sobre el dataset. El LLM utilizará el resumen del EDA como contexto.")
+    
+    user_query = st.text_area("Escribe tu pregunta aquí:")
+    
+    if st.button("Obtener respuesta del LLM"):
+        if user_query:
+            with st.spinner("Analizando con el LLM..."):
+                full_prompt = [
+                    "Eres un experto analista de datos. Tu tarea es responder preguntas sobre un dataset basándote estrictamente en el análisis exploratorio de datos (EDA) proporcionado a continuación. Si la respuesta no se puede deducir del EDA, responde que no tienes la información. Responde de manera clara y concisa.",
+                    f"### Contexto del EDA:\n{eda_summary}",
+                    f"### Pregunta del usuario:\n{user_query}"
+                ]
+                
+                response = get_gemini_response(full_prompt)
+            
+            if response:
+                st.subheader("Respuesta del LLM")
+                st.write(response)
+        else:
+            st.warning("Por favor, escribe una pregunta para el LLM.")
