@@ -2,8 +2,7 @@ streamlit
 pandas
 matplotlib
 seaborn
-scikit-learn
+torch
 transformers
-accelerate
 langchain
 langchain-huggingface
