@@ -391,11 +391,11 @@ if menu == "Análisis con LLM" and st.session_state.df is not None:
     {}
     
     """.format(
-        df.head().to_markdown(),
-        df.dtypes.to_markdown(),
-        df.describe().to_markdown(),
-        df.isnull().sum().to_markdown(),
-        (df.select_dtypes(include=np.number).apply(lambda x: zscore(x, nan_policy='omit')).abs() > 3).sum().to_markdown()
+        df.head().to_string(),
+        df.dtypes.to_string(),
+        df.describe().to_string(),
+        df.isnull().sum().to_string(),
+        (df.select_dtypes(include=np.number).apply(lambda x: zscore(x, nan_policy='omit')).abs() > 3).sum().to_string()
     )
     
     st.subheader("Tu Asistente de Análisis de Datos")
