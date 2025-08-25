@@ -53,35 +53,28 @@ if menu == "Carga de datos":
     file = st.file_uploader("Sube tu archivo CSV", type="csv")
     if file:
         try:
+            # Se carga el DataFrame sin conversiones iniciales
             df = pd.read_csv(file)
         except Exception:
             file.seek(0)
             df = pd.read_csv(file, encoding="latin1")
 
         # --- INICIO DE LA MEJORA EN LA DETECCIÓN DE TIPOS DE DATOS ---
-        # 1. Detección y conversión de columnas de fecha
+        # 1. Detección y conversión de columnas de fecha basada en el nombre
         for col in df.columns:
-            # Primero, intenta una conversión general
-            try:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
-            except:
-                pass
-            
-            # Ahora, revisa si es una columna de fecha basándose en el tipo y el nombre
-            # y si una gran parte de los valores son válidos.
-            if df[col].dtype == 'datetime64[ns]' and df[col].notnull().sum() > 0.5 * len(df):
-                st.write(f"✅ Columna '{col}' reconocida como fecha.")
-                continue
+            # Convierte el nombre de la columna a minúsculas para una comparación flexible
+            if "date" in col.lower() or "fecha" in col.lower():
+                try:
+                    df[col] = pd.to_datetime(df[col])
+                    st.write(f"✅ Columna '{col}' reconocida y convertida a tipo fecha.")
+                except Exception as e:
+                    st.error(f"❌ Error al convertir la columna '{col}' a fecha: {e}")
             
         # 2. Conversión de columnas de tipo 'object' a numéricas si es posible
         for col in df.columns:
             if df[col].dtype == 'object':
-                # Intentar convertir la columna a numérica.
-                # 'errors="coerce"' convertirá los valores no numéricos en NaN.
                 temp_series = pd.to_numeric(df[col], errors='coerce')
                 
-                # Si el 90% o más de la columna se pudo convertir a número,
-                # y no es una columna de identificadores únicos (como un ID)
                 if (temp_series.notnull().sum() / len(df)) > 0.9 and df[col].nunique() > 10:
                     df[col] = temp_series
                     st.write(f"✅ Columna '{col}' convertida a tipo numérico.")
@@ -118,7 +111,6 @@ if menu == "Análisis de valores nulos y atípicos" and st.session_state.df is n
     st.subheader("Valores nulos por columna")
     st.write(df.isnull().sum())
 
-    # --- INICIO DE LA MEJORA PARA LA GESTIÓN DE VALORES NULOS ---
     st.markdown("---")
     st.subheader("🛠️ Gestión de valores nulos")
     
@@ -174,7 +166,6 @@ if menu == "Análisis de valores nulos y atípicos" and st.session_state.df is n
         st.session_state.df = df_copy
         st.write("### Nuevos valores nulos por columna:")
         st.write(st.session_state.df.isnull().sum())
-    # --- FIN DE LA MEJORA ---
 
     num_cols = df.select_dtypes(include=np.number).columns
     if len(num_cols) > 0:
