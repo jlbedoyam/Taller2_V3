@@ -2,73 +2,20 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-from sklearn.preprocessing import MinMaxScaler
-
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from langchain_huggingface import HuggingFacePipeline
 
-# ================================
-# Configuración de la página
-# ================================
-st.set_page_config(page_title="EDA con LLM", layout="wide")
-
-# Paleta de colores por secciones
-SECTION_COLORS = {
-    "Carga de Datos": "#F0F8FF",
-    "Análisis de Tendencia": "#FFF8DC",
-    "Análisis de Correlación": "#E6E6FA",
-    "Análisis con LLM": "#F5F5DC"
-}
-
-# ================================
-# Funciones auxiliares
-# ================================
-def load_data(file):
-    df = pd.read_csv(file)
-
-    # Convertir solo las columnas con "date" o "fecha" en el nombre
-    for col in df.columns:
-        if "date" in col.lower() or "fecha" in col.lower():
-            try:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
-            except Exception:
-                pass
-    return df
-
-
-def generate_eda_summary(df):
-    summary = []
-
-    # Número de filas y columnas
-    summary.append(f"El dataset tiene {df.shape[0]} filas y {df.shape[1]} columnas.")
-
-    # Variables numéricas
-    num_cols = df.select_dtypes(include=["number"]).columns.tolist()
-    if num_cols:
-        summary.append(f"Columnas numéricas: {', '.join(num_cols)}")
-        summary.append("Estadísticas descriptivas de las variables numéricas:")
-        summary.append(str(df[num_cols].describe().to_dict()))
-
-    # Variables categóricas
-    cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
-    if cat_cols:
-        summary.append(f"Columnas categóricas: {', '.join(cat_cols)}")
-
-    # Variables de fecha
-    date_cols = [c for c in df.columns if "date" in c.lower() or "fecha" in c.lower()]
-    if date_cols:
-        summary.append(f"Columnas de fecha: {', '.join(date_cols)}")
-
-    return "\n".join(summary)
-
-
+# -----------------------------
+# Función para construir el LLM
+# -----------------------------
 def build_llm(hf_token, model_name="meta-llama/Meta-Llama-3-8B-Instruct"):
-    tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=hf_token)
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        token=hf_token,
-        device_map="auto"
+        device_map="auto",
+        torch_dtype=torch.float16,
+        use_auth_token=hf_token
     )
 
     pipe = pipeline(
@@ -83,133 +30,127 @@ def build_llm(hf_token, model_name="meta-llama/Meta-Llama-3-8B-Instruct"):
     llm = HuggingFacePipeline(pipeline=pipe)
     return llm
 
-
-# ================================
-# Layout principal
-# ================================
-st.markdown(
-    """
-    <style>
-    .sidebar .sidebar-content {
-        background-color: #ADD8E6;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
+# -----------------------------
+# App en Streamlit
+# -----------------------------
+st.set_page_config(
+    page_title="EDA + LLM con Llama 3",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-with st.sidebar:
-    st.title("📊 Menú de Navegación")
-    section = st.radio(
-        "Ir a:",
-        ["Carga de Datos", "Análisis de Tendencia", "Análisis de Correlación", "Análisis con LLM"]
-    )
-    st.markdown("---")
-    st.markdown("💡 **App desarrollada con Streamlit + Hugging Face**")
+st.sidebar.title("📊 Menú de opciones")
 
-# ================================
-# Lógica por secciones
-# ================================
-if section == "Carga de Datos":
-    st.markdown(f"<div style='background-color:{SECTION_COLORS[section]};padding:20px;'>", unsafe_allow_html=True)
-    st.header("📂 Carga de Datos")
+# Sección de carga de datos
+st.sidebar.subheader("Carga de datos")
+uploaded_file = st.sidebar.file_uploader("📂 Sube tu archivo CSV", type=["csv"])
+hf_token = st.sidebar.text_input("🔑 Ingresa tu Hugging Face Token", type="password")
 
-    uploaded_file = st.file_uploader("Sube un archivo CSV", type=["csv"])
-    hf_token = st.text_input("🔑 Ingresa tu Hugging Face Token", type="password")
+# Columna izquierda menú / derecha contenido
+menu = st.sidebar.radio("Navegación", ["EDA Automático", "Análisis con LLM"])
 
-    if uploaded_file:
-        data = load_data(uploaded_file)
-        st.success("Datos cargados correctamente ✅")
-        st.dataframe(data.head())
+# -----------------------------
+# Manejo de datos
+# -----------------------------
+if uploaded_file is not None:
+    try:
+        df = pd.read_csv(uploaded_file)
 
-        # Guardar en sesión
-        st.session_state["data"] = data
-        st.session_state["eda_summary"] = generate_eda_summary(data)
-        if hf_token:
-            st.session_state["hf_token"] = hf_token
+        # Convertir solo columnas que contengan "date" o "fecha" en datetime
+        for col in df.columns:
+            if "date" in col.lower() or "fecha" in col.lower():
+                try:
+                    df[col] = pd.to_datetime(df[col], errors="coerce")
+                except Exception:
+                    pass
 
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.success("✅ Datos cargados correctamente")
+    except Exception as e:
+        st.error(f"❌ Error al leer el archivo: {e}")
+        df = None
+else:
+    df = None
 
-elif section == "Análisis de Tendencia":
-    st.markdown(f"<div style='background-color:{SECTION_COLORS[section]};padding:20px;'>", unsafe_allow_html=True)
-    st.header("📈 Análisis de Tendencia")
+# -----------------------------
+# Sección de EDA Automático
+# -----------------------------
+if menu == "EDA Automático":
+    if df is not None:
+        st.header("📊 Exploratory Data Analysis (EDA)")
 
-    if "data" in st.session_state:
-        data = st.session_state["data"]
-        date_cols = [c for c in data.columns if "date" in c.lower() or "fecha" in c.lower()]
-        num_cols = data.select_dtypes(include="number").columns.tolist()
+        st.subheader("Vista previa de los datos")
+        st.dataframe(df.head())
 
-        if date_cols and num_cols:
-            date_col = st.selectbox("Selecciona la columna de fecha", date_cols)
-            num_col = st.selectbox("Selecciona la variable numérica", num_cols)
+        st.subheader("Resumen general")
+        st.write(df.describe(include="all"))
 
-            period = st.selectbox("Periodo de resumen", ["Día", "Mes", "Año"])
-            rule = {"Día": "D", "Mes": "M", "Año": "Y"}[period]
+        st.subheader("Tipos de datos")
+        st.write(df.dtypes)
 
-            df_trend = data[[date_col, num_col]].dropna()
-            df_trend = df_trend.groupby(pd.Grouper(key=date_col, freq=rule)).mean()
-
-            st.line_chart(df_trend)
+        # Gráfico de correlación solo si hay más de 1 variable numérica
+        numeric_df = df.select_dtypes(include=["number"])
+        if numeric_df.shape[1] > 1:
+            st.subheader("Mapa de calor - Correlación")
+            corr = numeric_df.corr()
+            fig, ax = plt.subplots(figsize=(10, 6))
+            sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax)
+            st.pyplot(fig)
         else:
-            st.warning("El dataset debe tener al menos una columna de fecha y una numérica.")
+            st.info("⚠️ No hay suficientes variables numéricas para calcular correlación.")
+
     else:
-        st.warning("Primero carga un dataset en la sección 'Carga de Datos'.")
+        st.info("📂 Por favor carga un CSV para iniciar el análisis.")
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
-elif section == "Análisis de Correlación":
-    st.markdown(f"<div style='background-color:{SECTION_COLORS[section]};padding:20px;'>", unsafe_allow_html=True)
-    st.header("🔗 Análisis de Correlación")
-
-    if "data" in st.session_state:
-        data = st.session_state["data"]
-        num_cols = data.select_dtypes(include="number").columns.tolist()
-
-        if len(num_cols) >= 2:
-            var1 = st.selectbox("Variable 1", num_cols)
-            var2 = st.selectbox("Variable 2", num_cols, index=1)
-
-            normalize = st.checkbox("Normalizar con MinMaxScaler")
-
-            data_corr = data[[var1, var2]].dropna()
-            if normalize:
-                scaler = MinMaxScaler()
-                data_corr = pd.DataFrame(scaler.fit_transform(data_corr), columns=[var1, var2])
-
-            if var1 == var2:
-                st.error("❌ No tiene sentido correlacionar una variable consigo misma.")
-            else:
-                corr_value = data_corr[var1].corr(data_corr[var2], method="pearson")
-                st.write(f"📌 Índice de correlación de Pearson: **{corr_value:.3f}**")
-
-                fig, ax = plt.subplots()
-                sns.scatterplot(x=var1, y=var2, data=data_corr, ax=ax)
-                st.pyplot(fig)
-        else:
-            st.warning("El dataset debe tener al menos dos variables numéricas.")
-    else:
-        st.warning("Primero carga un dataset en la sección 'Carga de Datos'.")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-elif section == "Análisis con LLM":
-    st.markdown(f"<div style='background-color:{SECTION_COLORS[section]};padding:20px;'>", unsafe_allow_html=True)
+# -----------------------------
+# Sección de análisis con LLM
+# -----------------------------
+elif menu == "Análisis con LLM":
     st.header("🤖 Análisis con LLM (Llama 3)")
 
-    if "eda_summary" in st.session_state and "hf_token" in st.session_state:
-        eda_summary = st.session_state["eda_summary"]
-        hf_token = st.session_state["hf_token"]
+    if df is not None and hf_token:
+        # Construcción del LLM
+        try:
+            llm = build_llm(hf_token)
+            st.success("✅ LLM cargado correctamente")
+        except Exception as e:
+            st.error(f"❌ Error al inicializar el modelo: {e}")
+            llm = None
 
-        user_question = st.text_input("Haz una pregunta sobre los datos:")
+        if llm is not None:
+            # Resumen de los datos para dar contexto
+            resumen = f"""
+            Dataset con {df.shape[0]} filas y {df.shape[1]} columnas.
+            Columnas: {', '.join(df.columns)}.
+            Tipos: {df.dtypes.to_dict()}
+            """
 
-        if user_question:
-            with st.spinner("Generando respuesta con Llama 3..."):
-                llm = build_llm(hf_token)
-                prompt = f"Resumen del EDA:\n{eda_summary}\n\nPregunta: {user_question}"
-                response = llm.invoke(prompt)
-                st.success("Respuesta del modelo:")
-                st.write(response)
+            st.subheader("Hazle una pregunta al modelo")
+            user_q = st.text_area("✍️ Escribe tu pregunta sobre los datos:")
+
+            if st.button("Preguntar al LLM"):
+                if user_q.strip():
+                    prompt = f"""
+                    Basado en el siguiente resumen del dataset:
+
+                    {resumen}
+
+                    Responde la siguiente pregunta del usuario de forma clara y breve:
+                    {user_q}
+                    """
+
+                    try:
+                        response = llm.invoke(prompt)
+                        st.markdown("### 📌 Respuesta del LLM")
+                        st.write(response)
+                    except Exception as e:
+                        st.error(f"❌ Error al generar la respuesta: {e}")
+                else:
+                    st.warning("⚠️ Escribe una pregunta primero.")
     else:
-        st.warning("Primero carga un dataset y proporciona tu Hugging Face Token en 'Carga de Datos'.")
+        st.info("📂 Carga un CSV y proporciona tu Hugging Face Token para usar el LLM.")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+# -----------------------------
+# Footer
+# -----------------------------
+st.markdown("---")
+st.markdown("💡 App desarrollada con ❤️ usando Streamlit, LangChain y Hugging Face")
