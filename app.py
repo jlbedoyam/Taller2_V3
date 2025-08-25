@@ -61,13 +61,18 @@ if menu == "Carga de datos":
         # --- INICIO DE LA MEJORA EN LA DETECCIÓN DE TIPOS DE DATOS ---
         # 1. Detección y conversión de columnas de fecha
         for col in df.columns:
+            # Primero, intenta una conversión general
             try:
-                # Si más del 80% de los valores se pueden convertir a fecha, lo convertimos
-                if pd.to_datetime(df[col], errors="coerce").notnull().sum() > 0.8 * len(df):
-                    df[col] = pd.to_datetime(df[col], errors="coerce")
-            except Exception:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
+            except:
+                pass
+            
+            # Ahora, revisa si es una columna de fecha basándose en el tipo y el nombre
+            # y si una gran parte de los valores son válidos.
+            if df[col].dtype == 'datetime64[ns]' and df[col].notnull().sum() > 0.5 * len(df):
+                st.write(f"✅ Columna '{col}' reconocida como fecha.")
                 continue
-
+            
         # 2. Conversión de columnas de tipo 'object' a numéricas si es posible
         for col in df.columns:
             if df[col].dtype == 'object':
@@ -79,6 +84,7 @@ if menu == "Carga de datos":
                 # y no es una columna de identificadores únicos (como un ID)
                 if (temp_series.notnull().sum() / len(df)) > 0.9 and df[col].nunique() > 10:
                     df[col] = temp_series
+                    st.write(f"✅ Columna '{col}' convertida a tipo numérico.")
         # --- FIN DE LA MEJORA ---
 
         st.session_state.df = df
@@ -116,16 +122,13 @@ if menu == "Análisis de valores nulos y atípicos" and st.session_state.df is n
     st.markdown("---")
     st.subheader("🛠️ Gestión de valores nulos")
     
-    # Opción para que el usuario elija cómo manejar los nulos
     missing_strategy = st.radio(
         "Elige una estrategia para manejar los valores nulos:",
         ("No hacer nada", "Eliminar filas", "Imputar valores"),
         horizontal=True
     )
     
-    # Opciones de imputación
     if missing_strategy == "Imputar valores":
-        # Se crean selectores para elegir el método de imputación para cada tipo de columna
         num_cols = df.select_dtypes(include=np.number).columns
         cat_cols = df.select_dtypes(include=["object", "category"]).columns
         
@@ -142,9 +145,7 @@ if menu == "Análisis de valores nulos y atípicos" and st.session_state.df is n
             horizontal=True
         )
 
-    # Botón para aplicar los cambios
     if st.button("Aplicar cambios"):
-        # Se crea una copia para no modificar el DataFrame original hasta que se apliquen los cambios
         df_copy = df.copy()
 
         if missing_strategy == "Eliminar filas":
@@ -152,7 +153,6 @@ if menu == "Análisis de valores nulos y atípicos" and st.session_state.df is n
             st.success("✅ Filas con valores nulos eliminadas correctamente.")
         
         elif missing_strategy == "Imputar valores":
-            # Imputación para columnas numéricas
             if len(num_cols) > 0:
                 for col in num_cols:
                     if num_imputation_method == "Media":
@@ -162,7 +162,6 @@ if menu == "Análisis de valores nulos y atípicos" and st.session_state.df is n
                     elif num_imputation_method == "Moda":
                         df_copy[col] = df_copy[col].fillna(df_copy[col].mode()[0])
             
-            # Imputación para columnas categóricas
             if len(cat_cols) > 0:
                 for col in cat_cols:
                     if cat_imputation_method == "Moda":
@@ -172,9 +171,7 @@ if menu == "Análisis de valores nulos y atípicos" and st.session_state.df is n
             
             st.success("✅ Valores nulos imputados correctamente.")
 
-        # Actualizar el DataFrame en la sesión si se realizaron cambios
         st.session_state.df = df_copy
-        # Mostrar el conteo de nulos después de la operación
         st.write("### Nuevos valores nulos por columna:")
         st.write(st.session_state.df.isnull().sum())
     # --- FIN DE LA MEJORA ---
