@@ -19,13 +19,28 @@ st.set_page_config(
 def build_llm(hf_token: str):
     model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        use_auth_token=hf_token
+    )
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        token=hf_token,
+        use_auth_token=hf_token,
         device_map="auto",
         torch_dtype="auto"
     )
+
+    pipe = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_new_tokens=512,
+        temperature=0.2,
+        top_p=0.9,
+    )
+
+    return HuggingFacePipeline(pipeline=pipe)
+
 
     pipe = pipeline(
         "text-generation",
