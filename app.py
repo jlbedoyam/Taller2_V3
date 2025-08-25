@@ -48,18 +48,6 @@ menu = st.sidebar.radio(
 )
 
 # -------------------------------
-# Guardar token en session_state
-# -------------------------------
-if "hf_token" not in st.session_state:
-    st.session_state.hf_token = ""
-
-hf_token_input = st.sidebar.text_input("🔑 Ingresa tu Hugging Face Token", type="password")
-
-# Si el usuario escribe un token nuevo, lo guardamos
-if hf_token_input:
-    st.session_state.hf_token = hf_token_input
-
-# -------------------------------
 # Cargar Datos
 # -------------------------------
 if "df" not in st.session_state:
@@ -73,7 +61,7 @@ if menu == "📂 Cargar Datos":
         try:
             df = pd.read_csv(uploaded_file)
 
-            # Identificar columnas de fecha (solo si contienen "date" o "fecha" en el nombre)
+            # Identificar columnas de fecha
             date_cols = [col for col in df.columns if "date" in col.lower() or "fecha" in col.lower()]
             for col in date_cols:
                 try:
@@ -131,21 +119,31 @@ elif menu == "📊 Análisis Exploratorio":
 elif menu == "🤖 Análisis con LLM":
     st.header("🤖 Análisis con LLM (Llama 3)")
 
-    if st.session_state.df is not None and st.session_state.hf_token:
-        df = st.session_state.df
+    if st.session_state.df is None:
+        st.warning("⚠️ Primero carga un dataset en la sección '📂 Cargar Datos'.")
+    else:
+        # Pedimos token SOLO aquí
+        if "hf_token" not in st.session_state or not st.session_state.hf_token:
+            hf_token_input = st.text_input("🔑 Ingresa tu Hugging Face Token", type="password")
+            if hf_token_input:
+                st.session_state.hf_token = hf_token_input
+                st.success("✅ Token guardado para toda la sesión. Ahora ya puedes usar el modelo.")
+                st.stop()
+            else:
+                st.info("ℹ️ Ingresa tu token para continuar.")
+                st.stop()
 
-        # Generar resumen simple del EDA para dar contexto al LLM
-        resumen = f"""
-        Este dataset tiene {df.shape[0]} filas y {df.shape[1]} columnas.
-        Columnas: {list(df.columns)}.
-        """
-
-        # Inicializar LLM
+        # Ya tenemos token y dataset
         try:
             llm = build_llm(st.session_state.hf_token)
             st.success("✅ LLM cargado correctamente")
 
-            # Caja de preguntas
+            df = st.session_state.df
+            resumen = f"""
+            Este dataset tiene {df.shape[0]} filas y {df.shape[1]} columnas.
+            Columnas: {list(df.columns)}.
+            """
+
             pregunta = st.text_input("Escribe tu pregunta sobre los datos:")
             if st.button("Preguntar al LLM"):
                 if pregunta:
@@ -161,6 +159,3 @@ elif menu == "🤖 Análisis con LLM":
                     st.write(respuesta)
         except Exception as e:
             st.error(f"❌ Error al inicializar el modelo: {e}")
-
-    else:
-        st.warning("⚠️ Debes cargar un dataset y escribir tu token de Hugging Face.")
