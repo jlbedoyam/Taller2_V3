@@ -21,6 +21,10 @@ def get_gemini_response(prompt_parts):
     """
     Makes a synchronous call to the Gemini API to get a response.
     """
+    if not API_KEY:
+        st.error("Error: API Key is not set. Cannot make a call to the LLM.")
+        return None
+
     try:
         # Construct the payload for the API request
         payload = {
