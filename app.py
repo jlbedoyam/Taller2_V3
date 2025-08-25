@@ -4,6 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from scipy.stats import zscore
+import numpy as np
 
 # ======================
 # ESTILOS
@@ -57,16 +58,31 @@ if menu == "Carga de datos":
             file.seek(0)
             df = pd.read_csv(file, encoding="latin1")
 
-        # Detectar columnas de fecha
+        # --- INICIO DE LA MEJORA EN LA DETECCIÓN DE TIPOS DE DATOS ---
+        # 1. Detección y conversión de columnas de fecha
         for col in df.columns:
             try:
+                # Si más del 80% de los valores se pueden convertir a fecha, lo convertimos
                 if pd.to_datetime(df[col], errors="coerce").notnull().sum() > 0.8 * len(df):
                     df[col] = pd.to_datetime(df[col], errors="coerce")
             except Exception:
                 continue
 
+        # 2. Conversión de columnas de tipo 'object' a numéricas si es posible
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                # Intentar convertir la columna a numérica.
+                # 'errors="coerce"' convertirá los valores no numéricos en NaN.
+                temp_series = pd.to_numeric(df[col], errors='coerce')
+                
+                # Si el 90% o más de la columna se pudo convertir a número,
+                # y no es una columna de identificadores únicos (como un ID)
+                if (temp_series.notnull().sum() / len(df)) > 0.9 and df[col].nunique() > 10:
+                    df[col] = temp_series
+        # --- FIN DE LA MEJORA ---
+
         st.session_state.df = df
-        st.success("✅ Datos cargados correctamente")
+        st.success("✅ Datos cargados y tipos de datos detectados correctamente")
         st.dataframe(df.head())
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -77,10 +93,10 @@ if menu == "Descripción general" and st.session_state.df is not None:
     df = st.session_state.df
     st.header("📖 Descripción general")
     st.write("### Tipos de datos detectados")
-    st.write(df.dtypes)
+    st.dataframe(df.dtypes, use_container_width=True)
 
     st.write("### Resumen estadístico (numéricas)")
-    num_cols = df.select_dtypes(include=["int64", "float64"]).columns
+    num_cols = df.select_dtypes(include=np.number).columns
     if len(num_cols) > 0:
         st.write(df[num_cols].describe())
     else:
@@ -96,10 +112,77 @@ if menu == "Análisis de valores nulos y atípicos" and st.session_state.df is n
     st.subheader("Valores nulos por columna")
     st.write(df.isnull().sum())
 
-    num_cols = df.select_dtypes(include=["int64", "float64"]).columns
+    # --- INICIO DE LA MEJORA PARA LA GESTIÓN DE VALORES NULOS ---
+    st.markdown("---")
+    st.subheader("🛠️ Gestión de valores nulos")
+    
+    # Opción para que el usuario elija cómo manejar los nulos
+    missing_strategy = st.radio(
+        "Elige una estrategia para manejar los valores nulos:",
+        ("No hacer nada", "Eliminar filas", "Imputar valores"),
+        horizontal=True
+    )
+    
+    # Opciones de imputación
+    if missing_strategy == "Imputar valores":
+        # Se crean selectores para elegir el método de imputación para cada tipo de columna
+        num_cols = df.select_dtypes(include=np.number).columns
+        cat_cols = df.select_dtypes(include=["object", "category"]).columns
+        
+        st.markdown("#### Columnas numéricas")
+        num_imputation_method = st.selectbox(
+            "Método de imputación para variables numéricas:",
+            ("Mediana", "Media", "Moda")
+        )
+        
+        st.markdown("#### Columnas categóricas")
+        cat_imputation_method = st.radio(
+            "Método de imputación para variables categóricas:",
+            ("Moda", "Valor fijo 'Desconocido'"),
+            horizontal=True
+        )
+
+    # Botón para aplicar los cambios
+    if st.button("Aplicar cambios"):
+        # Se crea una copia para no modificar el DataFrame original hasta que se apliquen los cambios
+        df_copy = df.copy()
+
+        if missing_strategy == "Eliminar filas":
+            df_copy = df_copy.dropna()
+            st.success("✅ Filas con valores nulos eliminadas correctamente.")
+        
+        elif missing_strategy == "Imputar valores":
+            # Imputación para columnas numéricas
+            if len(num_cols) > 0:
+                for col in num_cols:
+                    if num_imputation_method == "Media":
+                        df_copy[col] = df_copy[col].fillna(df_copy[col].mean())
+                    elif num_imputation_method == "Mediana":
+                        df_copy[col] = df_copy[col].fillna(df_copy[col].median())
+                    elif num_imputation_method == "Moda":
+                        df_copy[col] = df_copy[col].fillna(df_copy[col].mode()[0])
+            
+            # Imputación para columnas categóricas
+            if len(cat_cols) > 0:
+                for col in cat_cols:
+                    if cat_imputation_method == "Moda":
+                        df_copy[col] = df_copy[col].fillna(df_copy[col].mode()[0])
+                    elif cat_imputation_method == "Valor fijo 'Desconocido'":
+                        df_copy[col] = df_copy[col].fillna("Desconocido")
+            
+            st.success("✅ Valores nulos imputados correctamente.")
+
+        # Actualizar el DataFrame en la sesión si se realizaron cambios
+        st.session_state.df = df_copy
+        # Mostrar el conteo de nulos después de la operación
+        st.write("### Nuevos valores nulos por columna:")
+        st.write(st.session_state.df.isnull().sum())
+    # --- FIN DE LA MEJORA ---
+
+    num_cols = df.select_dtypes(include=np.number).columns
     if len(num_cols) > 0:
         st.subheader("Valores atípicos (Z-score > 3)")
-        outliers = (df[num_cols].apply(zscore).abs() > 3).sum()
+        outliers = (df[num_cols].apply(lambda x: zscore(x, nan_policy='omit')).abs() > 3).sum()
         st.write(outliers)
 
 # ======================
@@ -109,21 +192,32 @@ if menu == "Visualización numérica" and st.session_state.df is not None:
     df = st.session_state.df
     st.header("📊 Boxplots de variables numéricas")
 
-    num_cols = df.select_dtypes(include=["int64", "float64"]).columns
+    num_cols = df.select_dtypes(include=np.number).columns
     if len(num_cols) > 0:
         normalize = st.checkbox("Normalizar datos con MinMaxScaler", value=False)
         data_plot = df[num_cols].copy()
+        
         if normalize:
             scaler = MinMaxScaler()
             data_plot = pd.DataFrame(scaler.fit_transform(data_plot), columns=num_cols)
 
-        fig, axes = plt.subplots(nrows=(len(num_cols) // 2) + 1, ncols=2, figsize=(12, 6))
-        axes = axes.flatten()
+        fig, axes = plt.subplots(nrows=(len(num_cols) + 1) // 2, ncols=2, figsize=(12, 6))
+        if len(num_cols) == 1:
+            axes = [axes]
+        else:
+            axes = axes.flatten()
+            
         for i, col in enumerate(num_cols):
-            sns.boxplot(y=data_plot[col], ax=axes[i], color="skyblue")
+            sns.boxplot(y=data_plot[col].dropna(), ax=axes[i], color="skyblue")
             axes[i].set_title(col)
+        
+        for i in range(len(num_cols), len(axes)):
+            fig.delaxes(axes[i])
+            
         plt.tight_layout()
         st.pyplot(fig)
+    else:
+        st.warning("No se encontraron columnas numéricas para visualizar.")
 
 # ======================
 # VISUALIZACIÓN CATEGÓRICA
@@ -138,7 +232,11 @@ if menu == "Visualización categórica" and st.session_state.df is not None:
             fig, ax = plt.subplots()
             df[col].value_counts().plot(kind="bar", ax=ax, color="lightcoral")
             ax.set_title(f"Frecuencia de {col}")
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
             st.pyplot(fig)
+    else:
+        st.warning("No se encontraron columnas categóricas para visualizar.")
 
 # ======================
 # CORRELACIONES
@@ -147,16 +245,14 @@ if menu == "Correlaciones" and st.session_state.df is not None:
     df = st.session_state.df
     st.header("📊 Correlaciones entre variables")
 
-    num_cols = df.select_dtypes(include=["int64", "float64"]).columns
+    num_cols = df.select_dtypes(include=np.number).columns
     if len(num_cols) > 1:
-        # Heatmap
         st.subheader("Matriz de correlación")
         corr = df[num_cols].corr()
         fig, ax = plt.subplots(figsize=(8, 6))
         sns.heatmap(corr, annot=True, cmap="RdYlGn", center=0, ax=ax)
         st.pyplot(fig)
 
-        # Selección de variables
         st.subheader("Correlación entre dos variables")
         normalize_corr = st.checkbox("Normalizar antes de correlacionar", value=False)
 
@@ -168,11 +264,14 @@ if menu == "Correlaciones" and st.session_state.df is not None:
             st.error("❌ No tiene sentido correlacionar la misma variable.")
         else:
             data_corr = df[[var1, var2]].dropna()
-            if normalize_corr:
-                scaler = MinMaxScaler()
-                data_corr = pd.DataFrame(scaler.fit_transform(data_corr), columns=[var1, var2])
-            corr_value = data_corr[var1].corr(data_corr[var2])
-            st.info(f"Coeficiente de correlación de Pearson: **{corr_value:.4f}**")
+            if data_corr.empty:
+                st.warning("No hay suficientes datos limpios para correlacionar estas variables.")
+            else:
+                if normalize_corr:
+                    scaler = MinMaxScaler()
+                    data_corr = pd.DataFrame(scaler.fit_transform(data_corr), columns=[var1, var2])
+                corr_value = data_corr[var1].corr(data_corr[var2])
+                st.info(f"Coeficiente de correlación de Pearson: **{corr_value:.4f}**")
 
 # ======================
 # ANÁLISIS DE TENDENCIAS
@@ -182,7 +281,7 @@ if menu == "Análisis de tendencias" and st.session_state.df is not None:
     st.header("📈 Análisis de tendencias")
 
     date_cols = df.select_dtypes(include=["datetime64[ns]"]).columns
-    num_cols = df.select_dtypes(include=["int64", "float64"]).columns
+    num_cols = df.select_dtypes(include=np.number).columns
 
     if len(date_cols) > 0 and len(num_cols) > 0:
         date_col = st.selectbox("Selecciona columna de fecha", date_cols)
@@ -210,14 +309,15 @@ if menu == "Pivot Table" and st.session_state.df is not None:
 
     date_cols = df.select_dtypes(include=["datetime64[ns]"]).columns
     cat_cols = df.select_dtypes(include=["object", "category"]).columns
-    num_cols = df.select_dtypes(include=["int64", "float64"]).columns
+    num_cols = df.select_dtypes(include=np.number).columns
 
     if len(date_cols) > 0 and len(cat_cols) > 0 and len(num_cols) > 0:
         date_col = st.selectbox("Selecciona columna de fecha", date_cols)
         cat_col = st.selectbox("Selecciona columna categórica (ej. Stock Index)", cat_cols)
         num_var = st.selectbox("Selecciona variable numérica", num_cols)
 
-        pivot = pd.pivot_table(df, index=date_col, columns=cat_col, values=num_var, aggfunc="mean")
+        pivot = pd.pivot_table(df.dropna(subset=[date_col, cat_col, num_var]), 
+                               index=date_col, columns=cat_col, values=num_var, aggfunc="mean")
 
         st.dataframe(pivot.head())
     else:
