@@ -1,18 +1,21 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 from langchain_huggingface import HuggingFacePipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
-# -------------------- Función para inicializar el modelo LLM --------------------
+# --------------------------------
+# Función para construir el LLM
+# --------------------------------
 def build_llm(hf_token: str):
     model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=hf_token)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        use_auth_token=hf_token,
+        token=hf_token,
         device_map="auto",
         torch_dtype="auto"
     )
@@ -28,83 +31,110 @@ def build_llm(hf_token: str):
 
     return HuggingFacePipeline(pipeline=pipe)
 
+# --------------------------------
+# Configuración UI
+# --------------------------------
+st.set_page_config(page_title="App de Análisis", layout="wide")
+st.sidebar.header("📊 Menú de Navegación")
+menu = st.sidebar.radio("Ir a:", ["Carga de Datos", "Análisis de Tendencia", "Análisis de Correlación", "Análisis con LLM"])
 
-# -------------------- Configuración de la App --------------------
-st.set_page_config(page_title="EDA + LLM", layout="wide")
+# Inicializar variables de sesión
+if "df" not in st.session_state:
+    st.session_state.df = None
+if "hf_token" not in st.session_state:
+    st.session_state.hf_token = None
+if "llm" not in st.session_state:
+    st.session_state.llm = None
 
-st.title("📊 Exploración de Datos con EDA + 🤖 LLM")
+# --------------------------------
+# Página 1: Carga de Datos
+# --------------------------------
+if menu == "Carga de Datos":
+    st.subheader("📂 Carga de Datos")
 
-menu = st.sidebar.radio("Navegación", ["📂 Carga de Datos", "📈 Análisis EDA", "🤖 Análisis con LLM"])
+    file = st.file_uploader("Sube un archivo CSV", type=["csv"])
+    token_input = st.text_input("🔑 Ingresa tu Hugging Face Token", type="password")
 
+    if token_input:
+        st.session_state.hf_token = token_input
+        st.success("✅ Token guardado en la sesión")
 
-# -------------------- 📂 Carga de Datos --------------------
-if menu == "📂 Carga de Datos":
-    st.header("📂 Carga de Datos")
+    if file:
+        df = pd.read_csv(file)
 
-    uploaded_file = st.file_uploader("Sube un archivo CSV", type=["csv"])
-    if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
-
-        # Convertir columnas que contienen "date" o "fecha" a formato datetime
+        # Convertir en fecha solo las columnas con "Date" o "fecha"
         for col in df.columns:
             if "date" in col.lower() or "fecha" in col.lower():
                 try:
                     df[col] = pd.to_datetime(df[col], errors="coerce")
                 except:
-                    pass
+                    pass  
 
         st.session_state.df = df
-        st.success("✅ Datos cargados correctamente")
-
-        st.subheader("Vista previa")
+        st.success("✅ Datos cargados exitosamente")
         st.dataframe(df.head())
 
-
-# -------------------- 📈 Análisis EDA --------------------
-elif menu == "📈 Análisis EDA":
-    st.header("📈 Análisis Exploratorio de Datos")
-
-    if "df" not in st.session_state:
-        st.warning("Primero carga un dataset en la sección 📂 Carga de Datos")
-    else:
+# --------------------------------
+# Página 2: Análisis de Tendencia
+# --------------------------------
+elif menu == "Análisis de Tendencia":
+    if st.session_state.df is not None:
+        st.subheader("📈 Análisis de Tendencia")
         df = st.session_state.df
 
-        st.subheader("Información general")
-        st.write(df.describe(include="all"))
+        date_cols = [col for col in df.columns if "date" in col.lower() or "fecha" in col.lower()]
+        num_cols = df.select_dtypes(include="number").columns.tolist()
 
-        st.subheader("Distribución de variables numéricas")
-        num_cols = df.select_dtypes(include=["float64", "int64"]).columns
-        if len(num_cols) > 0:
+        if date_cols and num_cols:
+            col_date = st.selectbox("Selecciona la columna de fecha", date_cols)
+            col_num = st.selectbox("Selecciona la variable numérica", num_cols)
+
             fig, ax = plt.subplots(figsize=(10, 5))
-            df[num_cols].hist(ax=ax)
+            ax.plot(df[col_date], df[col_num])
+            plt.xticks(rotation=45)
             st.pyplot(fig)
-
-        st.subheader("Correlaciones")
-        if len(num_cols) > 1:
-            fig, ax = plt.subplots(figsize=(8, 6))
-            sns.heatmap(df[num_cols].corr(), annot=True, cmap="coolwarm", ax=ax)
-            st.pyplot(fig)
-
-
-# -------------------- 🤖 Análisis con LLM --------------------
-elif menu == "🤖 Análisis con LLM":
-    st.header("🤖 Análisis con LLM")
-
-    if "df" not in st.session_state:
-        st.warning("Primero carga un dataset en la sección 📂 Carga de Datos")
+        else:
+            st.warning("Se requieren columnas de fecha y numéricas")
     else:
-        if "hf_token" not in st.session_state:
-            hf_token = st.text_input("🔑 Ingresa tu Hugging Face Token", type="password")
-            if hf_token:
-                st.session_state.hf_token = hf_token
-                st.success("✅ Token guardado en sesión")
+        st.warning("Primero carga un dataset en 'Carga de Datos'.")
 
-        if "hf_token" in st.session_state:
-            llm = build_llm(st.session_state.hf_token)
+# --------------------------------
+# Página 3: Análisis de Correlación
+# --------------------------------
+elif menu == "Análisis de Correlación":
+    if st.session_state.df is not None:
+        st.subheader("📊 Análisis de Correlación")
+        df = st.session_state.df
 
-            st.subheader("Haz preguntas sobre tu dataset")
-            question = st.text_input("❓ Escribe tu pregunta")
-            if question:
-                st.write("💡 Respuesta del modelo:")
-                response = llm.invoke(question)
-                st.write(response)
+        corr = df.corr(numeric_only=True)
+        fig, ax = plt.subplots(figsize=(8, 6))
+        sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax)
+        st.pyplot(fig)
+    else:
+        st.warning("Primero carga un dataset en 'Carga de Datos'.")
+
+# --------------------------------
+# Página 4: Análisis con LLM
+# --------------------------------
+elif menu == "Análisis con LLM":
+    if st.session_state.df is not None and st.session_state.hf_token:
+        st.subheader("🤖 Análisis con LLM")
+
+        if st.session_state.llm is None:
+            with st.spinner("Cargando modelo LLaMA desde Hugging Face..."):
+                st.session_state.llm = build_llm(st.session_state.hf_token)
+
+        user_query = st.text_area("Escribe tu consulta sobre los datos")
+        if st.button("Analizar con LLM"):
+            if user_query:
+                prompt = f"""
+                Dataset columnas: {', '.join(st.session_state.df.columns)}.
+                Responde en español de forma clara: {user_query}
+                """
+                response = st.session_state.llm.invoke(prompt)
+                st.write("### Respuesta del LLM:")
+                st.write(response.content)
+            else:
+                st.warning("Escribe una consulta para el LLM")
+    else:
+        st.warning("Primero carga un dataset y proporciona tu Hugging Face Token en 'Carga de Datos'.")
