@@ -1,9 +1,8 @@
 streamlit
 pandas
-matplotlib
 seaborn
-torch
+matplotlib
 scikit-learn
-transformers
-langchain
-langchain-huggingface
+scipy
+numpy
+
