@@ -5,4 +5,7 @@ matplotlib
 seaborn
 scikit-learn
 scipy
+langchain
+langchain_groq
+
 
