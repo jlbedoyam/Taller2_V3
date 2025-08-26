@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -13,10 +14,10 @@ from langchain_huggingface import HuggingFacePipeline
 def build_llm(hf_token: str):
     model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=hf_token)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        use_auth_token=hf_token,
+        token=hf_token,
         device_map="auto",
         torch_dtype="auto"
     )
@@ -48,7 +49,6 @@ if menu == "Carga de Datos":
     st.header("📂 Carga de Datos")
 
     file = st.file_uploader("Sube un archivo CSV", type=["csv"])
-    hf_token = st.text_input("🔑 Ingresa tu Hugging Face Token", type="password")
 
     if file is not None:
         df = pd.read_csv(file)
@@ -67,9 +67,12 @@ if menu == "Carga de Datos":
         st.write("Vista previa:")
         st.dataframe(df.head())
 
-    if hf_token:
-        st.session_state.hf_token = hf_token
-        st.success("🔑 Token almacenado en sesión")
+    # Cargar token desde secrets
+    if "hf_token" not in st.session_state:
+        st.session_state.hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN", "")
+
+    if st.session_state.hf_token:
+        st.success("🔑 Token cargado desde secrets")
 
 
 # --------------------------------------------------
@@ -128,8 +131,8 @@ elif menu == "Análisis con LLM":
 
     if "df" not in st.session_state:
         st.warning("⚠️ Primero carga un CSV en 'Carga de Datos'")
-    elif "hf_token" not in st.session_state:
-        st.warning("⚠️ Ingresa tu token de Hugging Face en 'Carga de Datos'")
+    elif not st.session_state.hf_token:
+        st.error("⚠️ No se encontró el token de Hugging Face. Configúralo en secrets.toml")
     else:
         # Inicializar LLM (solo una vez)
         if "llm" not in st.session_state:
