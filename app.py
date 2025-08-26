@@ -13,10 +13,10 @@ from langchain_huggingface import HuggingFacePipeline
 def build_llm(hf_token: str):
     model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=hf_token)
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        token=hf_token,
+        use_auth_token=hf_token,
         device_map="auto",
         torch_dtype="auto"
     )
@@ -133,7 +133,8 @@ elif menu == "Análisis con LLM":
     else:
         # Inicializar LLM (solo una vez)
         if "llm" not in st.session_state:
-            st.session_state.llm = build_llm(st.session_state.hf_token)
+            with st.spinner("Cargando modelo Llama 3 desde Hugging Face..."):
+                st.session_state.llm = build_llm(st.session_state.hf_token)
 
         user_query = st.text_area("Escribe tu consulta sobre los datos:")
 
@@ -149,5 +150,6 @@ elif menu == "Análisis con LLM":
             """
 
             response = llm.invoke(prompt)
+
             st.write("### Respuesta del LLM:")
-            st.write(response)
+            st.write(str(response))
