@@ -69,7 +69,7 @@ if menu == "Carga de Datos":
 
     # Cargar token desde secrets
     if "hf_token" not in st.session_state:
-        st.session_state.hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN", "")
+        st.session_state.hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN ", "")
 
     if st.session_state.hf_token:
         st.success("🔑 Token cargado desde secrets")
