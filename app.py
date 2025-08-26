@@ -6,10 +6,15 @@ from sklearn.preprocessing import MinMaxScaler
 from scipy.stats import zscore
 import numpy as np
 
+# 🔹 Integración con LLM
+from langchain_groq import ChatGroq
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
+
 # ======================
 # ESTILOS
 # ======================
-st.set_page_config(layout="wide", page_title="EDA Interactivo")
+st.set_page_config(layout="wide", page_title="EDA Interactivo con LLM")
 
 st.markdown("""
     <style>
@@ -35,7 +40,7 @@ menu = st.sidebar.radio(
     "📊 Menú de navegación",
     ["Carga de datos", "Descripción general", "Análisis de valores nulos y atípicos",
      "Visualización numérica", "Visualización categórica", "Correlaciones",
-     "Análisis de tendencias", "Pivot Table"]
+     "Análisis de tendencias", "Pivot Table", "Asistente LLM"]
 )
 
 # ======================
@@ -53,32 +58,26 @@ if menu == "Carga de datos":
     file = st.file_uploader("Sube tu archivo CSV", type="csv")
     if file:
         try:
-            # Se carga el DataFrame sin conversiones iniciales
             df = pd.read_csv(file)
         except Exception:
             file.seek(0)
             df = pd.read_csv(file, encoding="latin1")
 
-        # --- INICIO DE LA MEJORA EN LA DETECCIÓN DE TIPOS DE DATOS ---
-        # 1. Detección y conversión de columnas de fecha basada en el nombre
+        # --- Mejora en detección de tipos ---
         for col in df.columns:
-            # Convierte el nombre de la columna a minúsculas para una comparación flexible
             if "date" in col.lower() or "fecha" in col.lower():
                 try:
                     df[col] = pd.to_datetime(df[col])
                     st.write(f"✅ Columna '{col}' reconocida y convertida a tipo fecha.")
                 except Exception as e:
                     st.error(f"❌ Error al convertir la columna '{col}' a fecha: {e}")
-            
-        # 2. Conversión de columnas de tipo 'object' a numéricas si es posible
         for col in df.columns:
             if df[col].dtype == 'object':
                 temp_series = pd.to_numeric(df[col], errors='coerce')
-                
                 if (temp_series.notnull().sum() / len(df)) > 0.9 and df[col].nunique() > 10:
                     df[col] = temp_series
                     st.write(f"✅ Columna '{col}' convertida a tipo numérico.")
-        # --- FIN DE LA MEJORA ---
+        # --- Fin mejora ---
 
         st.session_state.df = df
         st.success("✅ Datos cargados y tipos de datos detectados correctamente")
@@ -102,7 +101,7 @@ if menu == "Descripción general" and st.session_state.df is not None:
         st.warning("No se detectaron variables numéricas.")
 
 # ======================
-# NULOS Y ATÍPICOS
+# ANÁLISIS DE VALORES NULOS Y ATÍPICOS
 # ======================
 if menu == "Análisis de valores nulos y atípicos" and st.session_state.df is not None:
     df = st.session_state.df
@@ -310,3 +309,46 @@ if menu == "Pivot Table" and st.session_state.df is not None:
         st.dataframe(pivot.head())
     else:
         st.warning("Se necesitan al menos una columna de fecha, una categórica y una numérica.")
+
+# ======================
+# ASISTENTE LLM
+# ======================
+if menu == "Asistente LLM" and st.session_state.df is not None:
+    st.header("🤖 Asistente LLM sobre tu dataset")
+
+    groq_api_key = st.text_input("Ingresa tu API Key de Groq", type="password")
+
+    if groq_api_key:
+        model = ChatGroq(
+            groq_api_key=groq_api_key,
+            model_name="llama-3.3-70b-versatile"
+        )
+
+        # Prompt Template
+        template = """
+        Eres un experto en ciencia de datos.
+        Dataset cargado con las siguientes columnas: {columns}.
+        Resumen estadístico:
+        {stats}
+
+        El usuario pregunta: {question}
+        Responde en español de manera clara y concisa.
+        """
+        prompt = PromptTemplate(
+            input_variables=["columns", "stats", "question"],
+            template=template
+        )
+        chain = LLMChain(llm=model, prompt=prompt)
+
+        user_question = st.text_input("Escribe tu pregunta sobre el dataset:")
+        if user_question:
+            df = st.session_state.df
+            columns = ", ".join(df.columns)
+            stats = df.describe(include="all").to_string()
+
+            response = chain.run(columns=columns, stats=stats, question=user_question)
+            st.markdown("### 📌 Respuesta del asistente:")
+            st.write(response)
+
+    else:
+        st.warning("⚠️ Ingresa tu API Key de Groq para usar el asistente.")
